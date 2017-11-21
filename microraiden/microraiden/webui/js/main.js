@@ -1,6 +1,6 @@
 function mainSwitch(id) {
-  $(".main_switch"+id).show();
-  $(".main_switch:not("+id+")").hide();
+  $(".main_switch" + id).show();
+  $(".main_switch:not(" + id + ")").hide();
   $(".container").show();
 }
 
@@ -52,7 +52,7 @@ function pageReady(json) {
   function refreshAccounts(_autoSign) {
 
     autoSign = !!_autoSign;
-
+    console.log('first step,refreshAccounts');
     $select.empty();
     uraiden.getAccounts((err, accounts) => {
       if (err || !accounts || !accounts.length) {
@@ -61,18 +61,19 @@ function pageReady(json) {
         setTimeout(refreshAccounts, 1000);
       } else {
         mainSwitch("#channel_loading");
-        $.each(accounts, (k,v) => {
+        $.each(accounts, (k, v) => {
           const o = $("<option></option>").attr("value", v).text(v);
           $select.append(o);
           if (k === 0) {
             $select.change();
-          };
+          }
         });
       }
     });
   }
 
   function signRetry() {
+    console.log('signRetry');
     autoSign = false;
     uraiden.incrementBalanceAndSign(uRaidenParams.amount, (err, sign) => {
       if (err && err.message && err.message.includes('Insuficient funds')) {
@@ -117,13 +118,16 @@ function pageReady(json) {
   // ==== BINDINGS ====
 
   $select.change(($event) => {
+    console.log('second step,load account info');
     const account = $event.target.value;
 
-    uraiden.loadStoredChannel(account, uRaidenParams.receiver);
+    console.log('4 step,load store channel');
+    uraiden.loadStoredChannel(account, uRaidenParams.receiver);//获取当前开通的channel,localStorage,需要优化
 
     uraiden.getTokenInfo(account, (err, token) => {
+      console.log('5 step,getTokenInfo', token);
       if (err) {
-         console.error('Error getting token info', err);
+        console.error('Error getting token info', err);
       } else {
         $('.tkn-name').text(token.name);
         $('.tkn-symbol').text(token.symbol);
@@ -131,15 +135,16 @@ function pageReady(json) {
         $('.tkn-decimals')
           .attr("min", Math.pow(10, -token.decimals).toFixed(token.decimals));
       }
-
+      console.log('get account balance ', $('.tkn-balance').attr("value"));
       if (uraiden.isChannelValid() &&
-          uraiden.channel.account === $event.target.value &&
-          uraiden.channel.receiver === uRaidenParams.receiver) {
+        uraiden.channel.account === $event.target.value &&
+        uraiden.channel.receiver === uRaidenParams.receiver) {
+        console.log('channel info', uraiden.channel);
 
         uraiden.getChannelInfo((err, info) => {
           if (err) {
             console.error(err);
-            info = { state: "error", deposit: 0 }
+            info = {state: "error", deposit: 0}
           } else if (Cookies.get("RDN-Nonexisting-Channel")) {
             Cookies.remove("RDN-Nonexisting-Channel");
             window.alert("Server won't accept this channel.\n" +
@@ -147,7 +152,7 @@ function pageReady(json) {
             $('#channel_present .channel_present_sign').attr("disabled", true);
             autoSign = false;
           }
-
+          console.log('6 step getChannelInfo', info);
           $(`#channel_present .on-state.on-state-${info.state}`).show();
           $(`#channel_present .on-state:not(.on-state-${info.state})`).hide();
 
@@ -159,12 +164,13 @@ function pageReady(json) {
           $("#channel_present #channel_present_deposit").attr("value", info.deposit);
           $(".btn-bar").show()
           if (info.state === 'opened' && autoSign) {
-            signRetry();
+            //signRetry();
           }
-
+          console.log("channel present");
           mainSwitch("#channel_present");
         });
       } else {
+        console.log("channel missing");
         mainSwitch("#channel_missing");
       }
     });
@@ -213,7 +219,7 @@ function pageReady(json) {
         method: 'DELETE',
         contentType: 'application/json',
         dataType: 'json',
-        data: JSON.stringify({ 'balance': uraiden.channel.balance }),
+        data: JSON.stringify({'balance': uraiden.channel.balance}),
         success: (result) => {
           let closeSign = null;
           if (result && typeof result === 'object' && result['close_signature']) {
@@ -249,7 +255,7 @@ function pageReady(json) {
   $(".channel_present_forget").click(() => {
     if (!window.confirm("Are you sure you want to forget this channel?" +
         ($('.on-state-settled').is(':visible') ? "" :
-         "\nWarning: channel will be left in an unsettled state."))) {
+          "\nWarning: channel will be left in an unsettled state."))) {
       return;
     }
     Cookies.remove("RDN-Sender-Address");
@@ -301,9 +307,8 @@ function pageReady(json) {
 
   $("#amount").text(uRaidenParams["amount"]);
   $('[data-toggle="tooltip"]').tooltip();
-  refreshAccounts(true);
-
-};
+  refreshAccounts(true);//loading account
+}
 
 
 mainSwitch("#channel_loading");

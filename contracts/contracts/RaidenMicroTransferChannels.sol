@@ -376,7 +376,7 @@ contract RaidenMicroTransferChannels {
     /// @param _balance The amount of tokens owed by the sender to the receiver.
     function initChallengePeriod(
         address _receiver,
-        uint32 _open_block_number,
+        uint32 _open_block3_number,
         uint192 _balance)
         private
     {

@@ -235,6 +235,7 @@ class Client:
         assert deposit > 0
 
         token_balance = self.token_proxy.contract.call().balanceOf(self.account)
+        print('open_channel', token_balance)
         if token_balance < deposit:
             log.error(
                 'Insufficient tokens available for the specified deposit ({}/{})'

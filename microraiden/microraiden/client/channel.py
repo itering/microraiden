@@ -84,6 +84,7 @@ class Channel:
             return
 
         token_balance = self.client.token_proxy.contract.call().balanceOf(self.client.account)
+        print('topup', token_balance)
         if token_balance < deposit:
             log.error(
                 'Insufficient tokens available for the specified topup ({}/{})'
