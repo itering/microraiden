@@ -110,16 +110,12 @@ class Expensive(Resource):
 
     def get(self, content):
         log.info(content)
-        print('get content function')
         if self.channel_manager.node_online() is False:
             return "Ethereum node is not responding", 502
         try:
             data = RequestData(request.headers, request.cookies)
         except ValueError as e:
             return str(e), 409
-        print('request.headers',request.headers)
-        print('request.cookies',request.cookies)
-        print('data = RequestData(request.headers, request.cookies)', data, data.balance_signature)
         proxy_handle = self.paywall_db.get_content(content)
         if proxy_handle is None:
             return "NOT FOUND", 404
@@ -129,7 +125,7 @@ class Expensive(Resource):
 
         accepts_html = r'text/html' in request.headers.get('Accept', '')
 
-        if not data.balance_signature:
+        if not data.balance_signature:#todo bug : data.balance_signature is none
             print('reply_payment_required', 1)
             return self.reply_payment_required(content, proxy_handle, gen_ui=accepts_html)
 

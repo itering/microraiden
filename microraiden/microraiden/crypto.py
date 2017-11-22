@@ -122,8 +122,12 @@ def eth_verify(sig: bytes, msg: str) -> str:
     return addr_from_sig(sig, eth_message_hash(msg))
 
 
-def get_balance_message(receiver: str, open_block_number: int, balance: int,) -> str:
-    return 'Receiver: {}, Balance: {}, Channel ID: {}'.format(receiver, balance, open_block_number)
+def get_balance_message(receiver: str, open_block_number: int, balance: int, ) -> str:
+    return 'Receiver: {}, Balance: {}, Channel ID: {}'.format(receiver, num2bal(balance), open_block_number)
+
+
+def num2bal(balance) -> int:
+    return balance * (10 ** 18)
 
 
 def sign_balance_proof(privkey: str, receiver: str, open_block_number: int, balance: int) -> bytes:

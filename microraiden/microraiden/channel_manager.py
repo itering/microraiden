@@ -531,7 +531,7 @@ class ChannelManager(gevent.Greenlet):
                                 '(sender=%s, open_block_number=%s)' % (sender, open_block_number))
         if c.is_closed:
             raise NoOpenChannel('Channel closing has been requested already.')
-
+        print('is_same_address', self.receiver, open_block_number, balance, decode_hex(signature), sender)
         if not is_same_address(
                 verify_balance_proof(
                     self.receiver, open_block_number, balance, decode_hex(signature)
