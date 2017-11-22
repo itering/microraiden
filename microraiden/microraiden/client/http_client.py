@@ -68,6 +68,7 @@ class HTTPClient(object):
         Performs a simple GET request to the HTTP server with headers representing the given
         channel state.
         """
+        print('_request_resource', self.channel.balance_sig)
         headers = Munch()
         headers.contract_address = self.client.channel_manager_address
         if self.channel:

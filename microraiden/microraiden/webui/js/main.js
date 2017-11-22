@@ -75,7 +75,7 @@ function pageReady(json) {
   function signRetry() {
     console.log('signRetry');
     autoSign = false;
-    uraiden.incrementBalanceAndSign(uRaidenParams.amount, (err, sign) => {
+    uraiden.incrementBalanceAndSign(uRaidenParams.amount, (err, sign) => {//消费token并签名
       if (err && err.message && err.message.includes('Insuficient funds')) {
         console.error(err);
         const current = +(err.message.match(/current ?= ?([\d.,]+)/i)[1]);
@@ -93,7 +93,7 @@ function pageReady(json) {
         errorDialog("An error occurred trying to sign the transfer", err);
         return refreshAccounts();
       }
-      $('.channel_present_sign').removeClass('green-btn')
+      $('.channel_present_sign').removeClass('green-btn');
       console.log("SIGNED!", sign);
       Cookies.set("RDN-Sender-Address", uraiden.channel.account);
       Cookies.set("RDN-Open-Block", uraiden.channel.block);
@@ -105,6 +105,7 @@ function pageReady(json) {
   }
 
   function closeChannel(closeSign) {
+    console.log('closeChannel action');
     uraiden.closeChannel(closeSign, (err, res) => {
       if (err) {
         errorDialog("An error occurred trying to close the channel", err);
@@ -160,6 +161,7 @@ function pageReady(json) {
           if (info.deposit > 0 && uraiden.channel && !isNaN(uraiden.channel.balance)) {
             remaining = info.deposit - uraiden.channel.balance;
           }
+          console.log('now remaining token ', info.deposit, '-', uraiden.channel.balance);//消费的token存在localStorage里
           $("#channel_present #channel_present_balance").text(remaining);
           $("#channel_present #channel_present_deposit").attr("value", info.deposit);
           $(".btn-bar").show()
@@ -185,7 +187,7 @@ function pageReady(json) {
   });
   $("#channel_missing_start").attr("disabled", false);
 
-  $("#channel_missing_start").click(() => {
+  $("#channel_missing_start").click(() => {//open channel
     const deposit = +$("#channel_missing_deposit").val();
     const account = $("#accounts").val();
     mainSwitch("#channel_opening");
@@ -208,7 +210,7 @@ function pageReady(json) {
     }
     mainSwitch("#channel_opening");
     // signBalance without balance, sign current balance only if needed
-    uraiden.signBalance(null, (err, sign) => {
+    uraiden.signBalance(null, (err, sign) => {//关闭channel需要最后一次签名，使用当前已使用的token进行签名
       if (err) {
         errorDialog("An error occurred trying to get balance signature", err);
         return refreshAccounts();
@@ -263,7 +265,7 @@ function pageReady(json) {
     Cookies.remove("RDN-Sender-Balance");
     Cookies.remove("RDN-Balance-Signature");
     Cookies.remove("RDN-Nonexisting-Channel");
-    uraiden.forgetStoredChannel();
+    uraiden.forgetStoredChannel();//just remove localStorage ,not settled status
     refreshAccounts();
   });
 
@@ -275,6 +277,7 @@ function pageReady(json) {
     }
   });
 
+  //store more token ,some to open channel
   $("#topup_start").click(() => {
     const deposit = +$("#topup_deposit").val();
     mainSwitch("#channel_opening");

@@ -219,6 +219,7 @@ class MicroRaiden {
     deposit = this.num2bal(deposit);
     // automatically support both ERC20 and ERC223 tokens
     let transfer;
+    console.log('openChannel token transfer');
     if (typeof this.token.transfer["address,uint256,bytes"] === "function") {
       // ERC223
       transfer = (_deposit, _receiver, cb) =>
@@ -254,7 +255,7 @@ class MicroRaiden {
     }
 
     // first, check if there's enough balance
-    return this.token.balanceOf.call(
+    return this.token.balanceOf.call( //token合约
       account,
       {from: account},
       (err, balance) => {
@@ -466,7 +467,7 @@ class MicroRaiden {
     });
   }
 
-  signMessage(msg, callback) {
+  signMessage(msg, callback) {//签名后返回签名信息
     if (!this.isChannelValid()) {
       return callback(new Error("No valid channelInfo"));
     }
@@ -488,7 +489,7 @@ class MicroRaiden {
       });
   }
 
-  signBalance(newBalance, callback) {
+  signBalance(newBalance, callback) {//消费签名
     if (!this.isChannelValid()) {
       return callback(new Error("No valid channelInfo"));
     }
@@ -598,7 +599,7 @@ class MicroRaiden {
   /**
    * Mock buy, just mint the amount
    */
-  buyToken(account, callback) {
+  buyToken(account, callback) {//购买token
     return this.catchCallback(
       this.token.mint && this.token.mint.sendTransaction,
       {from: account, value: this.web3.toWei(0.1, "ether")},

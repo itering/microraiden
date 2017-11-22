@@ -438,7 +438,7 @@ class ChannelManager(gevent.Greenlet):
         assert (sender, open_block_number) in self.channels
         c = self.channels[sender, open_block_number]
         if c.is_closed is True:
-            self.log.warn("Topup of an already closed channel (sender=%s open_block=%d)" %
+            self.log.warning("Topup of an already closed channel (sender=%s open_block=%d)" %
                           (sender, open_block_number))
             return None
         c.deposit = deposit
@@ -451,7 +451,7 @@ class ChannelManager(gevent.Greenlet):
     def close_channel(self, sender, open_block_number):
         """Close and settle a channel."""
         if not (sender, open_block_number) in self.channels:
-            self.log.warn("attempt to close a non-registered channel (sender=%s open_block=%s" %
+            self.log.warning("attempt to close a non-registered channel (sender=%s open_block=%s" %
                           (sender, open_block_number))
             return
         c = self.channels[sender, open_block_number]
@@ -486,6 +486,7 @@ class ChannelManager(gevent.Greenlet):
             raise NoOpenChannel('Channel does not exist or has been closed'
                                 '(sender=%s, open_block_number=%d)' % (sender, open_block_number))
         c = self.channels[sender, open_block_number]
+        print('sign_close', c)
         if c.is_closed:
             raise NoOpenChannel('Channel closing has been requested already.')
         assert balance is not None

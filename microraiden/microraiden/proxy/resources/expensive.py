@@ -110,12 +110,16 @@ class Expensive(Resource):
 
     def get(self, content):
         log.info(content)
+        print('get content function')
         if self.channel_manager.node_online() is False:
             return "Ethereum node is not responding", 502
         try:
             data = RequestData(request.headers, request.cookies)
         except ValueError as e:
             return str(e), 409
+        print('request.headers',request.headers)
+        print('request.cookies',request.cookies)
+        print('data = RequestData(request.headers, request.cookies)', data, data.balance_signature)
         proxy_handle = self.paywall_db.get_content(content)
         if proxy_handle is None:
             return "NOT FOUND", 404
@@ -126,6 +130,7 @@ class Expensive(Resource):
         accepts_html = r'text/html' in request.headers.get('Accept', '')
 
         if not data.balance_signature:
+            print('reply_payment_required', 1)
             return self.reply_payment_required(content, proxy_handle, gen_ui=accepts_html)
 
         # try to get an existing channel
@@ -135,16 +140,20 @@ class Expensive(Resource):
                 data.balance, data.balance_signature)
         except InsufficientConfirmations as e:
             headers = {header.INSUF_CONFS: "1"}
+            print('reply_payment_required', 2)
             return self.reply_payment_required(
                 content, proxy_handle, headers=headers, gen_ui=accepts_html)
         except NoOpenChannel as e:
+            print('reply_payment_required', 3)
             return self.reply_payment_required(content, proxy_handle,
                                                headers={header.NONEXISTING_CHANNEL: 1},
                                                gen_ui=accepts_html)
         except InvalidBalanceAmount as e:
+            print('reply_payment_required', 4)
             # balance sent to the proxy is less than in the previous proof
             return self.reply_payment_required(content, proxy_handle, headers, gen_ui=accepts_html)
         except InvalidBalanceProof as e:
+            print('reply_payment_required', 5)
             return self.reply_payment_required(content, proxy_handle,
                                                headers={header.INVALID_PROOF: 1},
                                                gen_ui=accepts_html)
@@ -159,8 +168,10 @@ class Expensive(Resource):
                 data.balance_signature)
         except InvalidBalanceAmount as e:
             # balance sent to the proxy is less than in the previous proof
+            print('reply_payment_required', 6)
             return self.reply_payment_required(content, proxy_handle, headers, gen_ui=accepts_html)
         except InvalidBalanceProof as e:
+            print('reply_payment_required', 7)
             return self.reply_payment_required(content, proxy_handle, headers, gen_ui=accepts_html)
 
         # all ok, return premium content
@@ -192,6 +203,7 @@ class Expensive(Resource):
             return data, status_code, headers
 
     def reply_payment_required(self, content, proxy_handle, headers=None, gen_ui=False):
+        print('reply_payment_required**********', gen_ui)
         if headers is None:
             headers = {}
         assert isinstance(headers, dict)
@@ -214,6 +226,7 @@ class Expensive(Resource):
         else:
             return make_response('', 402, headers)
 
+    # web response return
     def get_webUI_reply(self, content: str, proxy_handle: PaywalledContent,
                         price: int, headers: dict):
         headers.update({

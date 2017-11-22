@@ -140,11 +140,12 @@ class ChannelManagementChannelInfo(Resource):
             return "Sender address not found", 404
 
         return sender_channel.to_dict(), 200
-
+    #api delete todo bugFix
     def delete(self, sender_address, opening_block):
         parser = reqparse.RequestParser()
         parser.add_argument('balance', type=int, help='last balance proof balance')
         args = parser.parse_args()
+        print('args', args)
         if args.balance is None:
             return "Bad balance format", 400
 

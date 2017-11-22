@@ -5,8 +5,6 @@ from flask_restful import (
     Api,
 )
 
-from microraiden import config
-
 from microraiden.channel_manager import (
     ChannelManager
 )
@@ -26,8 +24,7 @@ from microraiden.proxy.resources import (
 
 from microraiden.proxy.content import PaywallDatabase, PaywalledContent
 from microraiden.proxy.resources.expensive import LightClientProxy
-from microraiden.config import API_PATH
-
+from microraiden.config import API_PATH, HTML_DIR, JSLIB_DIR
 
 import logging
 import ssl
@@ -46,8 +43,8 @@ class PaywalledProxy:
         else:
             assert isinstance(flask_app, Flask)
             self.app = flask_app
-        paywall_html_dir = paywall_html_dir or config.HTML_DIR
-        paywall_js_dir = paywall_js_dir or config.JSLIB_DIR
+        paywall_html_dir = paywall_html_dir or HTML_DIR
+        paywall_js_dir = paywall_js_dir or JSLIB_DIR
         assert isinstance(channel_manager, ChannelManager)
         assert isinstance(paywall_html_dir, str)
         self.paywall_db = PaywallDatabase()
@@ -76,6 +73,7 @@ class PaywalledProxy:
         # REST interface
         self.api.add_resource(ChannelManagementLogin, API_PATH + "/login")
         self.api.add_resource(ChannelManagementLogout, API_PATH + "/logout")
+        # close channel
         self.api.add_resource(ChannelManagementChannelInfo,
                               API_PATH + "/channels/<string:sender_address>/<int:opening_block>",
                               resource_class_kwargs={'channel_manager': self.channel_manager})
@@ -104,12 +102,12 @@ class PaywalledProxy:
     def run(self, host='localhost', port=5000, debug=False, ssl_context=None):
         assert ssl_context is None or len(ssl_context) == 2
         # register our custom error handler to ignore some exceptions and fail on others
-#        register_error_handler(self.gevent_error_handler)
+        #        register_error_handler(self.gevent_error_handler)
         self.channel_manager.wait_sync()
         from gevent.pywsgi import WSGIServer
         if ((ssl_context is not None) and
-           (len(ssl_context) > 2) and
-           (ssl_context[0] and ssl_context[1])):
+                (len(ssl_context) > 2) and
+                (ssl_context[0] and ssl_context[1])):
             self.rest_server = WSGIServer((host, port), self.app,
                                           keyfile=ssl_context[0],
                                           certfile=ssl_context[1])
