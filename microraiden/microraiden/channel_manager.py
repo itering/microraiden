@@ -490,8 +490,8 @@ class ChannelManager(gevent.Greenlet):
         if c.is_closed:
             raise NoOpenChannel('Channel closing has been requested already.')
         assert balance is not None
-        if c.last_signature is None:
-            raise NoBalanceProofReceived('Payment has not been registered.')
+        # if c.last_signature is None:todo fix
+        #     raise NoBalanceProofReceived('Payment has not been registered.')
         if balance != c.balance:
             raise InvalidBalanceProof('Requested closing balance does not match latest one.')
         c.is_closed = True
@@ -527,9 +527,11 @@ class ChannelManager(gevent.Greenlet):
         try:
             c = self.channels[sender, open_block_number]
         except KeyError:
+            print('NoOpenChannel key error')
             raise NoOpenChannel('Channel does not exist or has been closed'
                                 '(sender=%s, open_block_number=%s)' % (sender, open_block_number))
         if c.is_closed:
+            print('NoOpenChannel c.is_closed')
             raise NoOpenChannel('Channel closing has been requested already.')
         print('is_same_address', self.receiver, open_block_number, balance, decode_hex(signature), sender)
         if not is_same_address(

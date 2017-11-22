@@ -208,6 +208,7 @@ function pageReady(json) {
     if (!window.confirm("Are you sure you want to close this channel?")) {
       return;
     }
+    console.log('click close channel');
     mainSwitch("#channel_opening");
     // signBalance without balance, sign current balance only if needed
     uraiden.signBalance(null, (err, sign) => {//关闭channel需要最后一次签名，使用当前已使用的token进行签名
@@ -215,6 +216,10 @@ function pageReady(json) {
         errorDialog("An error occurred trying to get balance signature", err);
         return refreshAccounts();
       }
+      Cookies.set("RDN-Sender-Address", uraiden.channel.account);
+      Cookies.set("RDN-Open-Block", uraiden.channel.block);
+      Cookies.set("RDN-Sender-Balance", uraiden.channel.balance);
+      Cookies.set("RDN-Balance-Signature", sign);
       // call cooperative-close URL, and closeChannel with close_signature data
       $.ajax({
         url: `/api/1/channels/${uraiden.channel.account}/${uraiden.channel.block}`,
@@ -233,6 +238,7 @@ function pageReady(json) {
         },
         error: (request, msg, error) => {
           console.warn('Error calling cooperative-close', request, msg, error);
+          alert('close channel error');
           closeChannel(null);
         }
       });

@@ -22,7 +22,7 @@ from microraiden.proxy.content import (
 )
 @pass_app
 def start(app, host, port):
-    app.add_content(PaywalledContent("teapot", 3, lambda _: ("HI I AM A TEAPOT", 418)))
+    app.add_content(PaywalledContent("teapot", 1, lambda _: ("HI I AM A TEAPOT", 418)))
     app.run(host=host, port=port, debug=True)  # nosec
     app.join()
 

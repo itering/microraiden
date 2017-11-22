@@ -125,7 +125,7 @@ class Expensive(Resource):
 
         accepts_html = r'text/html' in request.headers.get('Accept', '')
 
-        if not data.balance_signature:#todo bug : data.balance_signature is none
+        if not data.balance_signature:  # todo bug : data.balance_signature is none
             print('reply_payment_required', 1)
             return self.reply_payment_required(content, proxy_handle, gen_ui=accepts_html)
 

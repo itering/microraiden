@@ -493,10 +493,10 @@ class MicroRaiden {
     if (!this.isChannelValid()) {
       return callback(new Error("No valid channelInfo"));
     }
-    console.log("signBalance", newBalance, this.channel);
     if (newBalance === null) {
       newBalance = this.channel.balance;
     }
+    console.log("signBalance ********** ", newBalance, this.channel, this.channel.balance);
     if (newBalance === this.channel.balance && this.channel.sign) {
       return callback(null, this.channel.sign);
     }
