@@ -104,7 +104,7 @@ class Blockchain(gevent.Greenlet):
 
         # return if blocks have already been processed
         if (self.cm.state.confirmed_head_number >= new_confirmed_head_number and
-                self.cm.state.unconfirmed_head_number >= new_unconfirmed_head_number):
+                    self.cm.state.unconfirmed_head_number >= new_unconfirmed_head_number):
             return
 
         # filter for events after block_number
@@ -267,16 +267,18 @@ class ChannelManagerState(object):
         """Load a previously stored state."""
         assert filename is not None
         assert isinstance(filename, str)
+        recover_filename = filename + ".tmp"
         if os.path.isfile(filename) is False:
             log.error("State file  %s doesn't exist" % filename)
             return None
         if not check_permission_safety(filename):
             raise InsecureStateFile(filename)
         if os.path.getsize(filename) == 0:
-            recover_filename = filename + ".tmp"
             log.warning("Empty state file. Trying to recover from %s" % recover_filename)
             return ChannelManagerState.load(recover_filename)
         json_state = json.loads(open(filename, 'r').read())
+        json_state['filename'] = filename
+        json_state['tmp_filename'] = recover_filename
         ret = cls.from_dict(json_state)
         log.debug("loaded saved state. head_number=%d receiver=%s" %
                   (ret.confirmed_head_number, ret.receiver))
@@ -336,7 +338,7 @@ class ChannelManager(gevent.Greenlet):
 
         if network_id != self.state.network_id:
             raise NetworkIdMismatch("Network id mismatch: state=%d, backend=%d" % (
-                                    self.state.network_id, network_id))
+                self.state.network_id, network_id))
 
         if not is_same_address(self.receiver, self.state.receiver):
             raise StateReceiverAddrMismatch('%s != %s' %
@@ -439,7 +441,7 @@ class ChannelManager(gevent.Greenlet):
         c = self.channels[sender, open_block_number]
         if c.is_closed is True:
             self.log.warning("Topup of an already closed channel (sender=%s open_block=%d)" %
-                          (sender, open_block_number))
+                             (sender, open_block_number))
             return None
         c.deposit = deposit
         c.unconfirmed_topups.pop(txhash, None)
@@ -452,7 +454,7 @@ class ChannelManager(gevent.Greenlet):
         """Close and settle a channel."""
         if not (sender, open_block_number) in self.channels:
             self.log.warning("attempt to close a non-registered channel (sender=%s open_block=%s" %
-                          (sender, open_block_number))
+                             (sender, open_block_number))
             return
         c = self.channels[sender, open_block_number]
         if c.last_signature is None:
