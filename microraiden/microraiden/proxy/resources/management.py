@@ -7,8 +7,11 @@ from microraiden.proxy.resources.login import auth
 from eth_utils import encode_hex
 
 from microraiden.channel_manager import (
+    Channel,
     NoOpenChannel,
-    Channel
+    InvalidBalanceProof,
+    InvalidBalanceAmount,
+    InsufficientConfirmations
 )
 
 
@@ -94,7 +97,7 @@ class ChannelManagementListChannels(Resource):
         # if sender is not specified, return all open channels
         else:
             channels = self.get_all_channels(condition=lambda k, v:
-                                             channel_filter(v))
+            channel_filter(v))
             joined_channels = defaultdict(list)
             for c in channels:
                 joined_channels[c['sender_address']].append(c['open_block'])
@@ -102,7 +105,7 @@ class ChannelManagementListChannels(Resource):
                 {'sender_address': k,
                  'blocks': v
                  } for k, v in joined_channels.items()
-            ]
+                ]
 
         return json.dumps(ret), 200
 
@@ -140,12 +143,12 @@ class ChannelManagementChannelInfo(Resource):
             return "Sender address not found", 404
 
         return sender_channel.to_dict(), 200
-    #api delete todo bugFix
+
+    # api delete todo bugFix
     def delete(self, sender_address, opening_block):
         parser = reqparse.RequestParser()
         parser.add_argument('balance', type=int, help='last balance proof balance')
         args = parser.parse_args()
-        print('args', args)
         if args.balance is None:
             return "Bad balance format", 400
 
@@ -162,6 +165,54 @@ class ChannelManagementChannelInfo(Resource):
 
         return ret, 200
 
+
+class ChannelTransfer(Resource):
+    def __init__(self, channel_manager):
+        super(ChannelTransfer, self).__init__()
+        self.channel_manager = channel_manager
+
+    def put(self, sender_address, opening_block):
+        parser = reqparse.RequestParser()
+        parser.add_argument('balance', type=int, help=None)
+        parser.add_argument('balance_signature', type=str, help=None)
+        args = parser.parse_args()
+        if args.balance is None:
+            return "Bad balance format", 400
+        try:
+            key = (sender_address.lower(), opening_block)
+            sender_channel = self.channel_manager.channels[key]
+        except KeyError:
+            return "Sender address not found", 404
+        if self.channel_manager.node_online() is False:
+            return "Ethereum node is not responding", 502
+        if not args.balance_signature:
+            return "balance_signature", 400
+        try:
+            print('self.channel_manager.verify_balance_proof')
+            channel = self.channel_manager.verify_balance_proof(
+                sender_address, opening_block,
+                args.balance, args.balance_signature)
+        except InsufficientConfirmations as e:
+            return "InsufficientConfirmations", 400
+        except NoOpenChannel as e:
+            return "NoOpenChannel", 400
+        except InvalidBalanceAmount as e:
+            return "InvalidBalanceAmount", 400
+            # balance sent to the proxy is less than in the previous proof
+        except InvalidBalanceProof as e:
+            return "InvalidBalanceProof", 400
+        try:
+            self.channel_manager.register_payment(
+                channel.sender,
+                opening_block,
+                args.balance,
+                args.balance_signature)
+        except InvalidBalanceAmount as e:
+            # balance sent to the proxy is less than in the previous proof
+            return "InvalidBalanceAmount", 400
+        except InvalidBalanceProof as e:
+            return "InvalidBalanceProof", 400
+        return sender_channel.to_dict(), 200
 
 class ChannelManagementAdminChannels(Resource):
     def __init__(self, channel_manager):

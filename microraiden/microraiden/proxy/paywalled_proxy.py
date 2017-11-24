@@ -19,7 +19,8 @@ from microraiden.proxy.resources import (
     ChannelManagementLogout,
     ChannelManagementRoot,
     ChannelManagementStats,
-    StaticFilesServer
+    StaticFilesServer,
+    ChannelTransfer
 )
 
 from microraiden.proxy.content import PaywallDatabase, PaywalledContent
@@ -91,6 +92,12 @@ class PaywalledProxy:
         self.api.add_resource(ChannelManagementStats,
                               API_PATH + "/stats",
                               resource_class_kwargs={'channel_manager': self.channel_manager})
+
+        # transfer
+        self.api.add_resource(ChannelTransfer,
+                              API_PATH + "/channels/transfer/<string:sender_address>/<int:opening_block>",
+                              resource_class_kwargs={'channel_manager': self.channel_manager})
+
         self.api.add_resource(ChannelManagementRoot, "/cm")
 
     def add_content(self, content):

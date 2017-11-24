@@ -5,6 +5,7 @@ from .management import (
     ChannelManagementAdminChannels,
     ChannelManagementListChannels,
     ChannelManagementStats,
+    ChannelTransfer,
     ChannelManagementChannelInfo,
 )
 from .login import (
