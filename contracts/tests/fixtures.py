@@ -36,7 +36,6 @@ def token_contract(chain, create_contract):
 
         print_logs(token_contract, 'Approval', 'CustomToken')
         print_logs(token_contract, 'Transfer', 'CustomToken')
-        # print_logs(token_contract, 'GasCost', 'CustomToken')
 
         return token_contract
     return get
@@ -53,8 +52,6 @@ def channels_contract(chain, create_contract):
         print_logs(channels_contract, 'ChannelToppedUp', 'RaidenMicroTransferChannels')
         print_logs(channels_contract, 'ChannelCloseRequested', 'RaidenMicroTransferChannels')
         print_logs(channels_contract, 'ChannelSettled', 'RaidenMicroTransferChannels')
-        print_logs(channels_contract, 'GasCost', 'RaidenMicroTransferChannels')
-
 
         return channels_contract
     return get
@@ -71,10 +68,6 @@ def contract(chain, web3, token_contract, channels_contract, decimals):
     token = token_contract([supply, "CustomToken", decimals, "TKN"])
     contract = channels_contract([token.address, challenge_period])
     return contract
-
-
-def get_balance_message(receiver, open_block_number, balance):
-    return "Receiver: " + receiver + ", Balance: " + str(balance) + ", Channel ID: " + str(open_block_number)
 
 
 def print_logs(contract, event, name=''):
