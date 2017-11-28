@@ -11,8 +11,7 @@ contract RaidenMicroTransferChannels {
      */
 
     address public owner_address;
-    address public token_address;
-    uint8 public challenge_period;
+    uint32 public challenge_period;
 
     // Contract semantic version
     string public constant version = '1.0.0';
@@ -22,12 +21,10 @@ contract RaidenMicroTransferChannels {
     // Outdated contracts can still be used.
     address public latest_version_address;
 
-    string constant prefix = "\x19Ethereum Signed Message:\n";
+    Token public token;
 
-    Token token;
-
-    mapping (bytes32 => Channel) channels;
-    mapping (bytes32 => ClosingRequest) closing_requests;
+    mapping (bytes32 => Channel) public channels;
+    mapping (bytes32 => ClosingRequest) public closing_requests;
 
     // 28 (deposit) + 4 (block no settlement)
     struct Channel {
@@ -42,18 +39,13 @@ contract RaidenMicroTransferChannels {
     }
 
     struct ClosingRequest {
-        uint32 settle_block_number;
         uint192 closing_balance;
+        uint32 settle_block_number;
     }
 
     /*
      *  Modifiers
      */
-
-    modifier isToken() {
-        require(msg.sender == token_address);
-        _;
-    }
 
     modifier isOwner() {
         require(msg.sender == owner_address);
@@ -72,8 +64,7 @@ contract RaidenMicroTransferChannels {
         address indexed _sender,
         address indexed _receiver,
         uint32 indexed _open_block_number,
-        uint192 _added_deposit,
-        uint192 _deposit);
+        uint192 _added_deposit);
     event ChannelCloseRequested(
         address indexed _sender,
         address indexed _receiver,
@@ -94,13 +85,12 @@ contract RaidenMicroTransferChannels {
     /// @param _token_address The address of the Token used by the uRaiden contract.
     /// @param _challenge_period A fixed number of blocks representing the challenge period
     /// after a sender requests the closing of the channel without the receiver's signature.
-    function RaidenMicroTransferChannels(address _token_address, uint8 _challenge_period) public {
+    function RaidenMicroTransferChannels(address _token_address, uint32 _challenge_period) public {
         require(_token_address != 0x0);
         require(addressHasCode(_token_address));
         require(_challenge_period > 0);
 
         owner_address = msg.sender;
-        token_address = _token_address;
         token = Token(_token_address);
 
         challenge_period = _challenge_period;
@@ -175,11 +165,11 @@ contract RaidenMicroTransferChannels {
     /// @param _data Receiver address in bytes.
     function tokenFallback(address _sender_address, uint256 _deposit, bytes _data) external {
         // Make sure we trust the token
-        require(msg.sender == token_address);
+        require(msg.sender == address(token));
         uint length = _data.length;
 
-        // createChannel - receiver address (20 bytes + padding = 32 bytes)
-        // topUp - receiver address (32 bytes) + open_block_number (4 bytes + padding = 32 bytes)
+        // createChannel - receiver address (20 bytes)
+        // topUp - receiver address (20 bytes) + open_block_number (4 bytes) = 24 bytes
         require(length == 20 || length == 24);
 
         address receiver = addressFromData(_data);
@@ -215,10 +205,12 @@ contract RaidenMicroTransferChannels {
         uint192 _added_deposit)
         external
     {
+        topUpPrivate(msg.sender, _receiver_address, _open_block_number, _added_deposit);
+
         // transferFrom deposit from msg.sender to contract
         // ! needs prior approval from user
+        // Do transfer after any state change
         require(token.transferFrom(msg.sender, address(this), _added_deposit));
-        topUpPrivate(msg.sender, _receiver_address, _open_block_number, _added_deposit);
     }
 
     /// @dev Function called when any of the parties wants to close the channel and settle;
@@ -292,7 +284,8 @@ contract RaidenMicroTransferChannels {
         require(channels[key].open_block_number > 0);
 
         return (
-            key, channels[key].deposit,
+            key,
+            channels[key].deposit,
             closing_requests[key].settle_block_number,
             closing_requests[key].closing_balance
         );
@@ -364,7 +357,7 @@ contract RaidenMicroTransferChannels {
 
         channels[key].deposit += _added_deposit;
         assert(channels[key].deposit > _added_deposit);
-        ChannelToppedUp(_sender_address, _receiver_address, _open_block_number, _added_deposit, channels[key].deposit);
+        ChannelToppedUp(_sender_address, _receiver_address, _open_block_number, _added_deposit);
     }
 
 
@@ -410,15 +403,17 @@ contract RaidenMicroTransferChannels {
         require(channel.open_block_number > 0);
         require(_balance <= channel.deposit);
 
+        // Remove closed channel structures
+        // channel.open_block_number will become 0
+        // Change state before transfer call
+        delete channels[key];
+        delete closing_requests[key];
+
         // Send _balance to the receiver, as it is always <= deposit
         require(token.transfer(_receiver_address, _balance));
 
         // Send deposit - balance back to sender
         require(token.transfer(_sender_address, channel.deposit - _balance));
-
-        // remove closed channel structures
-        delete channels[key];
-        delete closing_requests[key];
 
         ChannelSettled(_sender_address, _receiver_address, _open_block_number, _balance);
     }

@@ -6,16 +6,30 @@ from microraiden.crypto import sign_balance_proof
 from microraiden.proxy.resources.login import auth
 from eth_utils import encode_hex
 
-from microraiden.channel_manager import (
-    NoOpenChannel,
-    Channel
-)
+from microraiden.channel_manager import Channel
+from microraiden.exceptions import NoOpenChannel
 
 
 class ChannelManagementRoot(Resource):
     @staticmethod
     def get():
         return "OK"
+
+
+class ChannelManagerAbi(Resource):
+    def __init__(self, abi={}):
+        self.abi = abi
+
+    def get(self):
+        return self.abi
+
+
+class TokenAbi(Resource):
+    def __init__(self, abi={}):
+        self.abi = abi
+
+    def get(self):
+        return self.abi
 
 
 class ChannelManagementStats(Resource):
@@ -42,7 +56,9 @@ class ChannelManagementStats(Resource):
                 'unique_senders': len(unique_senders),
                 'liquid_balance': self.channel_manager.get_liquid_balance(),
                 'token_address': self.channel_manager.token_contract.address,
-                'contract_address': contract_address}
+                'contract_address': contract_address,
+                'receiver_address': self.channel_manager.receiver
+                }
 
 
 class ChannelManagementListChannels(Resource):

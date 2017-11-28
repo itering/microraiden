@@ -1,15 +1,72 @@
-import logging
 import json
+import types
 
 from microraiden import DefaultHTTPClient
 from microraiden.test.utils.client import close_channel_cooperatively
 
 
-log = logging.getLogger(__name__)
-
-
 def check_response(response: bytes):
     assert response.decode().strip() == '"HI I AM A DOGGO"'
+
+
+def test_cheating_client(
+        doggo_proxy,
+        default_http_client: DefaultHTTPClient,
+        sender_address,
+        receiver_privkey,
+        receiver_address
+):
+    """this test scenario where client sends less funds than what is requested
+        by the server. In such case, a "RDN-Invalid-Amount=1" header should
+        be sent in a server's reply
+    """
+    #  patch default http client to use price lower than the server suggests
+    def patched_payment(
+            self: DefaultHTTPClient,
+            receiver: str,
+            price: int,
+            balance: int,
+            balance_sig: bytes,
+            channel_manager_address: str
+    ):
+        self.invalid_amount_received = 0
+        return DefaultHTTPClient.on_payment_requested(
+            self,
+            receiver,
+            price + self.price_adjust,
+            balance,
+            balance_sig,
+            channel_manager_address
+        )
+
+    def patched_on_invalid_amount(self: DefaultHTTPClient):
+        DefaultHTTPClient.on_invalid_amount(self)
+        self.invalid_amount_received = 1
+
+    default_http_client.on_invalid_amount = types.MethodType(
+        patched_on_invalid_amount,
+        default_http_client
+    )
+    default_http_client.on_payment_requested = types.MethodType(
+        patched_payment,
+        default_http_client
+    )
+
+    # correct amount
+    default_http_client.price_adjust = 0
+    response = default_http_client.run('doggo.jpg')
+    check_response(response)
+    assert default_http_client.invalid_amount_received == 0
+    # underpay
+    default_http_client.price_adjust = -1
+    response = default_http_client.run('doggo.jpg')
+    assert response is None
+    assert default_http_client.invalid_amount_received == 1
+    # overpay
+    default_http_client.price_adjust = 1
+    response = default_http_client.run('doggo.jpg')
+    assert response is None
+    assert default_http_client.invalid_amount_received == 1
 
 
 def test_default_http_client(
@@ -19,7 +76,6 @@ def test_default_http_client(
         receiver_privkey,
         receiver_address
 ):
-    logging.basicConfig(level=logging.INFO)
 
     check_response(default_http_client.run('doggo.jpg'))
 
@@ -39,7 +95,6 @@ def test_default_http_client(
 def test_default_http_client_topup(
         doggo_proxy, default_http_client: DefaultHTTPClient, receiver_privkey
 ):
-    logging.basicConfig(level=logging.INFO)
 
     # Create a channel that has just enough capacity for one transfer.
     default_http_client.initial_deposit = lambda x: 0
@@ -68,7 +123,6 @@ def test_default_http_client_topup(
 def test_default_http_client_close(
     doggo_proxy, default_http_client: DefaultHTTPClient
 ):
-    logging.basicConfig(level=logging.INFO)
 
     client = default_http_client.client
     check_response(default_http_client.run('doggo.jpg'))
@@ -80,7 +134,6 @@ def test_default_http_client_close(
 def test_default_http_client_existing_channel(
         doggo_proxy, default_http_client: DefaultHTTPClient, receiver_privkey, receiver_address
 ):
-    logging.basicConfig(level=logging.INFO)
 
     client = default_http_client.client
     channel = client.open_channel(receiver_address, 50)
@@ -93,7 +146,6 @@ def test_default_http_client_existing_channel(
 def test_default_http_client_existing_channel_topup(
     doggo_proxy, default_http_client: DefaultHTTPClient, receiver_privkey, receiver_address
 ):
-    logging.basicConfig(level=logging.INFO)
 
     client = default_http_client.client
     default_http_client.topup_deposit = lambda x: 13
@@ -106,7 +158,6 @@ def test_default_http_client_existing_channel_topup(
 
 def test_coop_close(doggo_proxy, default_http_client: DefaultHTTPClient, sender_address,
                     receiver_privkey, receiver_address):
-    logging.basicConfig(level=logging.INFO)
 
     check_response(default_http_client.run('doggo.jpg'))
 
