@@ -1,7 +1,8 @@
 pragma solidity ^0.4.17;
 
-import "./Token.sol";
-import "./lib/ECVerify.sol";
+import './Token.sol';
+import './lib/ECVerify.sol';
+import './MicroRaidenEIP712Helper.sol';
 
 /// @title Raiden MicroTransfer Channels Contract.
 contract RaidenMicroTransferChannels {
@@ -20,6 +21,10 @@ contract RaidenMicroTransferChannels {
     // by the owner during a new contract deployment for all outdated contracts.
     // Outdated contracts can still be used.
     address public latest_version_address;
+
+    // Contract implementing EIP712 helper functions.
+    // Reason: EIP712 is not standardized at this moment and can have breaking changes.
+    MicroRaidenEIP712Helper public microraiden_eip712_helper;
 
     Token public token;
 
@@ -103,6 +108,13 @@ contract RaidenMicroTransferChannels {
         latest_version_address = _latest_version_address;
     }
 
+    /// @dev Sets the address for the contract-library implementing EIP712 helper functions.
+    /// @param _microraiden_eip712_helper The address for EIP712 helper contract.
+    function setEip712HelperContract(address _microraiden_eip712_helper) public isOwner {
+        require(addressHasCode(_microraiden_eip712_helper));
+        microraiden_eip712_helper = MicroRaidenEIP712Helper(_microraiden_eip712_helper);
+    }
+
     /*
      *  Public helper functions (constant)
      */
@@ -137,16 +149,15 @@ contract RaidenMicroTransferChannels {
         uint192 _balance,
         bytes _balance_msg_sig)
         public
-        constant
+        view
         returns (address)
     {
-        // The variable names from below will be shown to the sender when signing
-        // the balance proof, so they have to be kept in sync with the Dapp client.
-        // The hashed strings should be kept in sync with this function's parameters
-        // (variable names and types)
-        var message_hash = keccak256(
-          keccak256('address receiver', 'uint32 block_created', 'uint192 balance'),
-          keccak256(_receiver_address, _open_block_number, _balance)
+        // getMessageHash is a pure function
+        bytes32 message_hash = microraiden_eip712_helper.getMessageHash(
+            _receiver_address,
+            _open_block_number,
+            _balance,
+            address(this)
         );
 
         // Derive address from signature
@@ -178,7 +189,12 @@ contract RaidenMicroTransferChannels {
             createChannelPrivate(_sender_address, receiver, uint192(_deposit));
         } else {
             uint32 open_block_number = blockNumberFromData(_data);
-            topUpPrivate(_sender_address, receiver, open_block_number, uint192(_deposit));
+            updateInternalBalanceStructs(
+                _sender_address,
+                receiver,
+                open_block_number,
+                uint192(_deposit)
+            );
         }
     }
 
@@ -205,7 +221,12 @@ contract RaidenMicroTransferChannels {
         uint192 _added_deposit)
         external
     {
-        topUpPrivate(msg.sender, _receiver_address, _open_block_number, _added_deposit);
+        updateInternalBalanceStructs(
+            msg.sender,
+            _receiver_address,
+            _open_block_number,
+            _added_deposit
+        );
 
         // transferFrom deposit from msg.sender to contract
         // ! needs prior approval from user
@@ -227,7 +248,6 @@ contract RaidenMicroTransferChannels {
         bytes _balance_msg_sig)
         external
     {
-        require(_balance_msg_sig.length == 65);
         address sender = verifyBalanceProof(_receiver_address, _open_block_number, _balance, _balance_msg_sig);
 
         if(msg.sender == _receiver_address) {
@@ -254,15 +274,14 @@ contract RaidenMicroTransferChannels {
         bytes _closing_sig)
         external
     {
-        require(_balance_msg_sig.length == 65);
-        require(_closing_sig.length == 65);
-
-        // Derive address from signature
-        address receiver = verifyBalanceProof(_receiver_address, _open_block_number, _balance, _closing_sig);
+        // Derive receiver address from signature
+        address receiver = ECVerify.ecverify(keccak256(_balance_msg_sig), _closing_sig);
         require(receiver == _receiver_address);
 
+        // Derive sender address from signed balance proof
         address sender = verifyBalanceProof(_receiver_address, _open_block_number, _balance, _balance_msg_sig);
         require(msg.sender == sender);
+
         settleChannel(sender, receiver, _open_block_number, _balance);
     }
 
@@ -334,13 +353,13 @@ contract RaidenMicroTransferChannels {
         ChannelCreated(_sender_address, _receiver_address, _deposit);
     }
 
-    /// @dev Funds channel with an additional deposit of tokens, only callable by the Token contract.
+    /// @dev Updates internal balance Structures, only callable by the Token contract.
     /// @param _sender_address The address that sends tokens.
     /// @param _receiver_address The address that receives tokens.
     /// @param _open_block_number The block number at which a channel between the
     /// sender and receiver was created.
     /// @param _added_deposit The added token deposit with which the current deposit is increased.
-    function topUpPrivate(
+    function updateInternalBalanceStructs(
         address _sender_address,
         address _receiver_address,
         uint32 _open_block_number,

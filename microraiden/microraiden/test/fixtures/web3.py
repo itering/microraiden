@@ -18,7 +18,7 @@ from web3.providers.rpc import RPCProvider
 
 from microraiden.crypto import (
     addr_from_sig,
-    sha3,
+    keccak256,
 )
 from microraiden.test.config import (
     CHANNEL_MANAGER_ADDRESS,
@@ -42,7 +42,9 @@ def disable_requests_loggin():
 
 def deploy_token_contract(web3, deployer_address, token_abi, token_bytecode):
     Token = web3.eth.contract(abi=token_abi, bytecode=token_bytecode)
-    txhash = Token.deploy({'from': deployer_address}, args=[100000, "ERC223", 6, "ERC223"])
+    txhash = Token.deploy(
+        {'from': deployer_address}, args=[100000, "Raiden Network Token", "RDN", 18]
+    )
     receipt = web3.eth.getTransactionReceipt(txhash)
     contract_address = receipt.contractAddress
     token = Token(contract_address)
@@ -119,7 +121,7 @@ def web3(request, use_tester, deployer_address, mine_sync_event):
                     self.nonce, self.gasprice, self.startgas, self.to, self.value, self.data,
                     (self.v - 35) // 2, 0, 0
                 )
-                msg = sha3(rlp.encode(raw_tx))
+                msg = keccak256(rlp.encode(raw_tx))
                 self._sender = decode_hex(addr_from_sig(r + s + v, msg))
                 return self._sender
             else:

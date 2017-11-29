@@ -2,7 +2,7 @@ from flask_restful import Resource, reqparse
 import json
 from collections import defaultdict
 
-from microraiden.crypto import sign_balance_proof
+from microraiden.crypto import sign_close
 from microraiden.proxy.resources.login import auth
 from eth_utils import encode_hex
 
@@ -14,22 +14,6 @@ class ChannelManagementRoot(Resource):
     @staticmethod
     def get():
         return "OK"
-
-
-class ChannelManagerAbi(Resource):
-    def __init__(self, abi={}):
-        self.abi = abi
-
-    def get(self):
-        return self.abi
-
-
-class TokenAbi(Resource):
-    def __init__(self, abi={}):
-        self.abi = abi
-
-    def get(self):
-        return self.abi
 
 
 class ChannelManagementStats(Resource):
@@ -57,7 +41,9 @@ class ChannelManagementStats(Resource):
                 'liquid_balance': self.channel_manager.get_liquid_balance(),
                 'token_address': self.channel_manager.token_contract.address,
                 'contract_address': contract_address,
-                'receiver_address': self.channel_manager.receiver
+                'receiver_address': self.channel_manager.receiver,
+                'manager_abi': self.channel_manager.contract_proxy.abi,
+                'token_abi': self.channel_manager.token_contract.abi
                 }
 
 
@@ -134,12 +120,7 @@ class ChannelManagementListChannels(Resource):
         channel = self.channel_manager.channels[sender_address, args.block]
         if channel.last_signature != args.signature:
             return "Invalid or outdated balance signature", 400
-        ret = sign_balance_proof(
-            self.channel_manager.private_key,
-            self.channel_manager.receiver,
-            args.block,
-            channel.balance
-        )
+        ret = sign_close(self.channel_manager.private_key, args.signature)
         return ret, 200
 
 

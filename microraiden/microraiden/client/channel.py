@@ -2,7 +2,7 @@ import logging
 from enum import Enum
 
 from eth_utils import decode_hex, is_same_address
-from microraiden.crypto import sign_balance_proof, verify_balance_proof
+from microraiden.crypto import sign_balance_proof, verify_closing_sig
 
 log = logging.getLogger(__name__)
 
@@ -72,7 +72,11 @@ class Channel:
 
     def sign(self):
         return sign_balance_proof(
-            self.client.privkey, self.receiver, self.block, self.balance
+            self.client.privkey,
+            self.receiver,
+            self.block,
+            self.balance,
+            self.client.channel_manager_address
         )
 
     def topup(self, deposit):
@@ -106,7 +110,6 @@ class Channel:
             self.sender,
             self.receiver,
             self.block,
-            self.deposit + deposit,
             deposit,
             current_block + 1
         )
@@ -137,7 +140,7 @@ class Channel:
             self.balance = balance
 
         tx = self.client.channel_manager_proxy.create_signed_transaction(
-            'close', [self.receiver, self.block, self.balance, self.balance_sig]
+            'uncooperativeClose', [self.receiver, self.block, self.balance, self.balance_sig]
         )
         self.client.web3.eth.sendRawTransaction(tx)
 
@@ -170,15 +173,13 @@ class Channel:
             self.receiver, self.block
         ))
         current_block = self.client.web3.eth.blockNumber
-        if not is_same_address(
-                verify_balance_proof(self.receiver, self.block, self.balance, closing_sig),
-                self.receiver
-        ):
+        if not is_same_address(verify_closing_sig(self.balance_sig, closing_sig), self.receiver):
             log.error('Invalid closing signature.')
             return None
 
         tx = self.client.channel_manager_proxy.create_signed_transaction(
-            'close', [self.receiver, self.block, self.balance, self.balance_sig, closing_sig]
+            'cooperativeClose',
+            [self.receiver, self.block, self.balance, self.balance_sig, closing_sig]
         )
         self.client.web3.eth.sendRawTransaction(tx)
 
