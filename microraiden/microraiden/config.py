@@ -1,3 +1,4 @@
+import json
 import os
 from eth_utils import denoms
 from web3 import HTTPProvider
@@ -19,7 +20,7 @@ NETWORK_NAMES = {
     1337: 'geth'
 }
 
-CHANNEL_MANAGER_ADDRESS = '0xffa52825c7997dd2be80fb91080500a52abd6d5b'
+CHANNEL_MANAGER_ADDRESS = '0xeb8f0c65921c6f2b6025d9dbdd9466419cbe56ec'
 MICRORAIDEN_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 HTML_DIR = os.path.join(MICRORAIDEN_DIR, 'microraiden', 'webui')
 JSLIB_DIR = os.path.join(HTML_DIR, 'js')
@@ -28,3 +29,5 @@ WEB3_PROVIDER = HTTPProvider("http://127.0.0.1:8545", request_kwargs={'timeout':
 
 TOKEN_ABI_NAME = 'CustomToken'
 CONTRACTS_ABI_JSON = 'data/contracts.json'
+with open(os.path.join(MICRORAIDEN_DIR, 'microraiden', CONTRACTS_ABI_JSON)) as metadata_file:
+    CONTRACT_METADATA = json.load(metadata_file)
