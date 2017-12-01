@@ -13,7 +13,13 @@ contract RaidenMicroTransferChannels {
     uint32 public challenge_period;
 
     // Contract semantic version
-    string public constant version = '1.0.0';
+    string public constant version = '0.1.0';
+
+    // We temporarily limit total token deposits in a channel to 100 tokens with 18 decimals.
+    // This was calculated just for RDN with its current (as of 30/11/2017) price and should
+    // not be considered to be the same for other tokens.
+    // This is just for the bug bounty release, as a safety measure.
+    uint256 public constant channel_deposit_bugbounty_limit = 10 ** 18 * 100;
 
     Token public token;
 
@@ -68,14 +74,19 @@ contract RaidenMicroTransferChannels {
 
     /// @dev Constructor for creating the uRaiden microtransfer channels contract.
     /// @param _token_address The address of the Token used by the uRaiden contract.
-    /// @param _challenge_period A fixed number of blocks representing the challenge period
+    /// @param _challenge_period A fixed number of blocks representing the challenge period.
+    /// We enforce a minimum of 500 blocks waiting period.
     /// after a sender requests the closing of the channel without the receiver's signature.
     function RaidenMicroTransferChannels(address _token_address, uint32 _challenge_period) public {
         require(_token_address != 0x0);
         require(addressHasCode(_token_address));
-        require(_challenge_period > 0);
+        require(_challenge_period >= 500);
 
         token = Token(_token_address);
+
+        // Check if the contract is indeed a token contract
+        require(token.totalSupply() > 0);
+
         challenge_period = _challenge_period;
     }
 
@@ -310,6 +321,8 @@ contract RaidenMicroTransferChannels {
     /// @param _receiver_address The address that receives tokens.
     /// @param _deposit The amount of tokens that the sender escrows.
     function createChannelPrivate(address _sender_address, address _receiver_address, uint192 _deposit) private {
+        require(_deposit <= channel_deposit_bugbounty_limit);
+
         uint32 open_block_number = uint32(block.number);
 
         // Create unique identifier from sender, receiver and current block number
@@ -344,6 +357,7 @@ contract RaidenMicroTransferChannels {
 
         require(channels[key].deposit > 0);
         require(closing_requests[key].settle_block_number == 0);
+        require(channels[key].deposit + _added_deposit <= channel_deposit_bugbounty_limit);
 
         channels[key].deposit += _added_deposit;
         assert(channels[key].deposit > _added_deposit);
