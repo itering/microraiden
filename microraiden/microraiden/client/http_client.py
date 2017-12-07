@@ -1,10 +1,11 @@
 import logging
-from typing import Any
+from typing import Tuple, Any
 
 import requests
-from eth_utils import encode_hex, decode_hex
+from eth_utils import encode_hex, decode_hex, is_same_address
 import json
 from munch import Munch
+from requests import Response
 
 from microraiden.client import Channel
 from microraiden.header import HTTPHeaders
@@ -35,7 +36,7 @@ class HTTPClient(object):
         return resource
 
     def stop(self):
-        log.info('Stopping HTTP client.')
+        log.debug('Stopping HTTP client.')
         self.running = False
 
     def make_url(self, resource_path: str):
@@ -44,7 +45,7 @@ class HTTPClient(object):
         return '{}://{}:{}/{}'.format(proto, self.api_endpoint, self.api_port, resource_path)
 
     def close_channel(self, channel: Channel):
-        log.info(
+        log.debug(
             'Requesting closing signature from server for balance {} on channel {}/{}/{}.'
             .format(channel.balance, channel.sender, channel.sender, channel.block)
         )
@@ -61,7 +62,7 @@ class HTTPClient(object):
         if self.channel:
             self.close_channel(self.channel)
 
-    def _request_resource(self, requested_resource: str) -> (Any, bool):
+    def _request_resource(self, requested_resource: str) -> Tuple[Any, bool]:
         """
         Performs a simple GET request to the HTTP server with headers representing the given
         channel state.
@@ -79,59 +80,88 @@ class HTTPClient(object):
         response = requests.get(url, headers=HTTPHeaders.serialize(headers))
         headers = HTTPHeaders.deserialize(response.headers)
 
+        if self.on_http_response(requested_resource, response) is False:
+            return None, False  # user requested abort
+
         if response.status_code == requests.codes.OK:
-            retry = self.on_success(response.content, headers.get('cost'))
-            return response.content, retry
+            return response.content, self.on_success(response.content, headers.get('cost'))
+
         elif response.status_code == requests.codes.PAYMENT_REQUIRED:
             if 'insuf_confs' in headers:
-                retry = self.on_insufficient_confirmations()
+                return None, self.on_insufficient_confirmations()
+
             elif 'insuf_funds' in headers:
-                retry = self.on_insufficient_funds()
+                return None, self.on_insufficient_funds()
+
+            elif 'contract_address' not in headers or not is_same_address(
+                headers.contract_address,
+                self.client.channel_manager_address
+            ):
+                return None, self.on_invalid_contract_address(
+                    headers.contract_address
+                )
+
             elif 'invalid_amount' in headers:
-                retry = self.on_invalid_amount()
-                self.channel.balance = int(headers.sender_balance)
-            else:
-                balance = None
-                balance_sig = None
+                last_balance = None
                 if 'sender_balance' in headers:
-                    balance = int(headers.sender_balance)
+                    last_balance = int(headers.sender_balance)
+                balance_sig = None
                 if 'balance_signature' in headers:
                     balance_sig = decode_hex(headers.balance_signature)
-                retry = self.on_payment_requested(
+                return None, self.on_invalid_amount(int(headers.price), last_balance, balance_sig)
+
+            else:
+                return None, self.on_payment_requested(
                     headers.receiver_address,
                     int(headers.price),
-                    balance,
-                    balance_sig,
-                    headers.get('contract_address')
                 )
-            return None, retry
         else:
-            return None, False
+            return None, self.on_http_error(requested_resource, response)
 
     def on_init(self, requested_resource):
-        pass
+        log.debug('Starting request loop for resource at {}.'.format(requested_resource))
 
     def on_exit(self):
         pass
 
-    def on_success(self, resource, cost: int):
+    def on_success(self, resource, cost: int) -> bool:
+        log.debug('Resource received.')
+        if cost is not None:
+            log.debug('Final cost was {}.'.format(cost))
         return False
 
     def on_insufficient_funds(self) -> bool:
-        return True
+        log.error(
+            'Server was unable to verify the transfer - Insufficient funds of the balance proof '
+            'or possibly an unconfirmed or unregistered topup.'
+        )
+        return False
 
     def on_insufficient_confirmations(self) -> bool:
         return True
 
-    def on_invalid_amount(self) -> bool:
+    def on_invalid_amount(self, price: int, last_balance: int, balance_sig: bytes) -> bool:
         return True
 
-    def on_payment_requested(
-            self,
-            receiver: str,
-            price: int,
-            balance: int,
-            balance_sig: bytes,
-            channel_manager_address: str
-    ):
+    def on_invalid_contract_address(self, contract_address: str) -> bool:
+        log.error(
+            'Server sent no or invalid contract address: {}.'.format(contract_address)
+        )
+        return False
+
+    def on_payment_requested(self, receiver: str, price: int):
+        return True
+
+    def on_http_response(self, requested_resource: str, response: Response):
+        """Called whenever server returns a reply.
+        Return False to abort current request."""
+        log.debug('Response received: {}'.format(response.headers))
+        return True
+
+    def on_http_error(self, requested_resource: str, response: Response):
+        """Triggered under the default behavior when the server returns anything other than a 402
+        or 200."""
+        log.warning(
+            'Unexpected server error, status code {}. Retrying.'.format(response.status_code)
+        )
         return True
