@@ -5,16 +5,18 @@ import pytest
 import requests_mock
 from eth_utils import encode_hex
 from munch import Munch
+from requests import Response
 from requests.exceptions import SSLError
 
 from microraiden import HTTPHeaders
 from microraiden import DefaultHTTPClient
+from microraiden.contract_proxy import ChannelContractProxy, ContractProxy
 from microraiden.test.utils.client import patch_on_http_response
 from microraiden.test.utils.disable_ssl_check import disable_ssl_check
 
 
-def check_response(response: bytes):
-    assert response and response.decode().strip() == '"HI I AM A DOGGO"'
+def check_response(response: Response):
+    assert response and response.text == '"HI I AM A DOGGO"\n'
 
 
 def test_full_cycle_success(
@@ -44,7 +46,7 @@ def test_full_cycle_success(
             {'status_code': 402, 'headers': headers1},
             {'status_code': 200, 'headers': headers2, 'text': 'success'}
         ])
-        resource = default_http_client.run('something')
+        response = default_http_client.get(url)
 
     # First cycle, request price.
     request = server_mock.request_history[0]
@@ -58,11 +60,13 @@ def test_full_cycle_success(
     assert request.method == 'GET'
     assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
     assert request.headers['RDN-Balance'] == '7'
-    assert default_http_client.channel.balance == 7
-    balance_sig_hex = encode_hex(default_http_client.channel.balance_sig)
+
+    channel = default_http_client.get_channel(url)
+    assert channel.balance == 7
+    balance_sig_hex = encode_hex(channel.balance_sig)
     assert request.headers['RDN-Balance-Signature'] == balance_sig_hex
-    assert default_http_client.channel.balance_sig
-    assert resource == b'success'
+    assert channel.balance_sig
+    assert response.text == 'success'
 
 
 def test_full_cycle_adapt_balance(
@@ -77,7 +81,7 @@ def test_full_cycle_adapt_balance(
     channel = client.get_suitable_channel(receiver_address, 10, initial_deposit=lambda x: 2 * x)
     channel.create_transfer(3)
     lost_balance_sig = channel.balance_sig
-    channel.balance = 0
+    channel.update_balance(0)
 
     with requests_mock.mock() as server_mock:
         headers1 = Munch()
@@ -105,7 +109,7 @@ def test_full_cycle_adapt_balance(
             {'status_code': 200, 'headers': headers3, 'text': 'success'}
         ])
 
-        resource = default_http_client.run('something')
+        response = default_http_client.get(url)
 
     # First cycle, request price.
     request = server_mock.request_history[0]
@@ -127,11 +131,13 @@ def test_full_cycle_adapt_balance(
     assert request.method == 'GET'
     assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
     assert request.headers['RDN-Balance'] == '10'
-    assert default_http_client.channel.balance == 10
-    balance_sig_hex = encode_hex(default_http_client.channel.balance_sig)
+
+    channel = default_http_client.get_channel(url)
+    assert channel.balance == 10
+    balance_sig_hex = encode_hex(channel.balance_sig)
     assert request.headers['RDN-Balance-Signature'] == balance_sig_hex
-    assert default_http_client.channel.balance_sig
-    assert resource == b'success'
+    assert channel.balance_sig
+    assert response.text == 'success'
 
 
 def test_full_cycle_error_500(
@@ -162,7 +168,7 @@ def test_full_cycle_error_500(
             {'status_code': 500, 'headers': {}},
             {'status_code': 200, 'headers': headers2, 'text': 'success'}
         ])
-        resource = default_http_client.run('something')
+        response = default_http_client.get(url)
 
     # First cycle, request price.
     request = server_mock.request_history[0]
@@ -176,8 +182,10 @@ def test_full_cycle_error_500(
     assert request.method == 'GET'
     assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
     assert request.headers['RDN-Balance'] == '3'
-    assert default_http_client.channel.balance == 3
-    balance_sig_hex = encode_hex(default_http_client.channel.balance_sig)
+
+    channel = default_http_client.get_channel(url)
+    assert channel.balance == 3
+    balance_sig_hex = encode_hex(channel.balance_sig)
     assert request.headers['RDN-Balance-Signature'] == balance_sig_hex
 
     # Third cycle, retry naively.
@@ -186,26 +194,150 @@ def test_full_cycle_error_500(
     assert request.method == 'GET'
     assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
     assert request.headers['RDN-Balance'] == '3'
-    assert default_http_client.channel.balance == 3
+    assert channel.balance == 3
     assert request.headers['RDN-Balance-Signature'] == balance_sig_hex
-    assert default_http_client.channel.balance_sig
-    assert resource == b'success'
+    assert channel.balance_sig
+    assert response.text == 'success'
 
 
-def test_cheating_client(doggo_proxy, default_http_client: DefaultHTTPClient):
+def test_full_cycle_success_post(
+        default_http_client: DefaultHTTPClient,
+        api_endpoint_address: str,
+        token_contract_address,
+        channel_manager_contract_address,
+        receiver_address
+):
+    default_http_client.initial_deposit = lambda x: x
+
+    with requests_mock.mock() as server_mock:
+        headers1 = Munch()
+        headers1.token_address = token_contract_address
+        headers1.contract_address = channel_manager_contract_address
+        headers1.receiver_address = receiver_address
+        headers1.price = '7'
+
+        headers2 = Munch()
+        headers2.cost = '7'
+
+        headers1 = HTTPHeaders.serialize(headers1)
+        headers2 = HTTPHeaders.serialize(headers2)
+
+        url = 'http://{}/something'.format(api_endpoint_address)
+        server_mock.post(url, [
+            {'status_code': 402, 'headers': headers1},
+            {'status_code': 200, 'headers': headers2, 'text': 'success'}
+        ])
+        response = default_http_client.post(url, json={'somefield': 'somevalue'})
+
+    # First cycle, request price.
+    request = server_mock.request_history[0]
+    assert request.path == '/something'
+    assert request.method == 'POST'
+    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.json()['somefield'] == 'somevalue'
+
+    # Second cycle, pay price.
+    request = server_mock.request_history[1]
+    assert request.path == '/something'
+    assert request.method == 'POST'
+    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Balance'] == '7'
+    assert request.json()['somefield'] == 'somevalue'
+
+    channel = default_http_client.get_channel(url)
+    assert channel.balance == 7
+    balance_sig_hex = encode_hex(channel.balance_sig)
+    assert request.headers['RDN-Balance-Signature'] == balance_sig_hex
+    assert channel.balance_sig
+    assert response.text == 'success'
+
+
+def test_custom_headers(
+        default_http_client: DefaultHTTPClient,
+        api_endpoint_address: str,
+        token_contract_address,
+        channel_manager_contract_address,
+        receiver_address
+):
+    default_http_client.initial_deposit = lambda x: x
+
+    with requests_mock.mock() as server_mock:
+        headers1 = Munch()
+        headers1.token_address = token_contract_address
+        headers1.contract_address = channel_manager_contract_address
+        headers1.receiver_address = receiver_address
+        headers1.price = '7'
+
+        headers2 = Munch()
+        headers2.cost = '7'
+
+        headers1 = HTTPHeaders.serialize(headers1)
+        headers2 = HTTPHeaders.serialize(headers2)
+
+        url = 'http://{}/something'.format(api_endpoint_address)
+        server_mock.get(url, [
+            {'status_code': 402, 'headers': headers1},
+            {'status_code': 200, 'headers': headers2, 'text': 'success'}
+        ])
+        response = default_http_client.get(url, headers={
+            'someheader': 'somevalue',
+            # This should override the actual balance but doesn't actually make sense.
+            'RDN-Balance': '5'
+        })
+
+    # First cycle, request price.
+    request = server_mock.request_history[0]
+    assert request.path == '/something'
+    assert request.method == 'GET'
+    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Balance'] == '5'
+    assert request.headers['someheader'] == 'somevalue'
+
+    # Second cycle, pay price.
+    request = server_mock.request_history[1]
+    assert request.path == '/something'
+    assert request.method == 'GET'
+    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Balance'] == '5'
+    assert request.headers['someheader'] == 'somevalue'
+
+    channel = default_http_client.get_channel(url)
+    assert channel.balance == 7
+    balance_sig_hex = encode_hex(channel.balance_sig)
+    assert request.headers['RDN-Balance-Signature'] == balance_sig_hex
+    assert channel.balance_sig
+    assert response.text == 'success'
+
+
+def test_cheating_client(
+        doggo_proxy,
+        default_http_client: DefaultHTTPClient,
+        http_doggo_url: str
+):
     """this test scenario where client sends less funds than what is requested
         by the server. In such case, a "RDN-Invalid-Amount=1" header should
         be sent in a server's reply
     """
-    def patched_payment(self: DefaultHTTPClient, receiver: str, price: int):
-        return DefaultHTTPClient.on_payment_requested(self, receiver, price + self.price_adjust)
+    def patched_payment(
+            self: DefaultHTTPClient,
+            method: str,
+            url: str,
+            response: Response,
+            **kwargs
+    ):
+        response.headers[HTTPHeaders.PRICE] = str(
+            int(response.headers[HTTPHeaders.PRICE]) + self.price_adjust
+        )
+        return DefaultHTTPClient.on_payment_requested(self, method, url, response, **kwargs)
 
-    def patched_on_invalid_amount(self, price: int, balance: int, balance_sig: bytes):
+    def patched_on_invalid_amount(self, method: str, url: str, response: Response, **kwargs):
         self.invalid_amount_received += 1
-        DefaultHTTPClient.on_invalid_amount(self, price, balance, balance_sig)
+        price = int(response.headers[HTTPHeaders.PRICE])
+        DefaultHTTPClient.on_invalid_amount(self, method, url, response, **kwargs)
         # on_invalid_amount will already prepare the next payment which we don't execute anymore,
         # so revert that.
-        self.channel.balance -= price
+        channel = self.get_channel(url)
+        channel.update_balance(channel.balance - price)
         return False
 
     default_http_client.on_invalid_amount = types.MethodType(
@@ -221,17 +353,17 @@ def test_cheating_client(doggo_proxy, default_http_client: DefaultHTTPClient):
 
     # correct amount
     default_http_client.price_adjust = 0
-    response = default_http_client.run('doggo.jpg')
+    response = default_http_client.get(http_doggo_url)
     check_response(response)
     assert default_http_client.invalid_amount_received == 0
     # underpay
     default_http_client.price_adjust = -1
-    response = default_http_client.run('doggo.jpg')
+    response = default_http_client.get(http_doggo_url)
     assert response is None
     assert default_http_client.invalid_amount_received == 1
     # overpay
     default_http_client.price_adjust = 1
-    response = default_http_client.run('doggo.jpg')
+    response = default_http_client.get(http_doggo_url)
     assert response is None
     assert default_http_client.invalid_amount_received == 2
 
@@ -240,51 +372,60 @@ def test_default_http_client(
         doggo_proxy,
         default_http_client: DefaultHTTPClient,
         sender_address,
-        receiver_address
+        receiver_address,
+        http_doggo_url: str
 ):
-    check_response(default_http_client.run('doggo.jpg'))
+    check_response(default_http_client.get(http_doggo_url))
 
     client = default_http_client.client
     open_channels = client.get_open_channels()
     assert len(open_channels) == 1
 
     channel = open_channels[0]
-    assert channel == default_http_client.channel
+    assert channel == default_http_client.get_channel(http_doggo_url)
     assert channel.balance_sig
     assert channel.balance < channel.deposit
     assert channel.sender == sender_address
     assert channel.receiver == receiver_address
 
 
-def test_default_http_client_topup(doggo_proxy, default_http_client: DefaultHTTPClient):
+def test_default_http_client_topup(
+        doggo_proxy,
+        default_http_client: DefaultHTTPClient,
+        http_doggo_url: str
+):
 
     # Create a channel that has just enough capacity for one transfer.
     default_http_client.initial_deposit = lambda x: 0
-    check_response(default_http_client.run('doggo.jpg'))
+    check_response(default_http_client.get(http_doggo_url))
 
     client = default_http_client.client
     open_channels = client.get_open_channels()
     assert len(open_channels) == 1
     channel1 = open_channels[0]
-    assert channel1 == default_http_client.channel
+    assert channel1 == default_http_client.get_channel(http_doggo_url)
     assert channel1.balance_sig
     assert channel1.balance == channel1.deposit
 
     # Do another payment. Topup should occur.
-    check_response(default_http_client.run('doggo.jpg'))
+    check_response(default_http_client.get(http_doggo_url))
     open_channels = client.get_open_channels()
     assert len(open_channels) == 1
     channel2 = open_channels[0]
-    assert channel2 == default_http_client.channel
+    assert channel2 == default_http_client.get_channel(http_doggo_url)
     assert channel2.balance_sig
     assert channel2.balance < channel2.deposit
     assert channel1 == channel2
 
 
-def test_default_http_client_close(doggo_proxy, default_http_client: DefaultHTTPClient):
+def test_default_http_client_close(
+        doggo_proxy,
+        default_http_client: DefaultHTTPClient,
+        http_doggo_url: str
+):
     client = default_http_client.client
-    check_response(default_http_client.run('doggo.jpg'))
-    default_http_client.close_active_channel()
+    check_response(default_http_client.get(http_doggo_url))
+    default_http_client.close_active_channel(http_doggo_url)
     open_channels = client.get_open_channels()
     assert len(open_channels) == 0
 
@@ -293,11 +434,12 @@ def test_default_http_client_existing_channel(
         doggo_proxy,
         default_http_client: DefaultHTTPClient,
         receiver_privkey,
-        receiver_address
+        receiver_address,
+        http_doggo_url: str
 ):
     client = default_http_client.client
     channel = client.open_channel(receiver_address, 50)
-    check_response(default_http_client.run('doggo.jpg'))
+    check_response(default_http_client.get(http_doggo_url))
     assert channel.balance == 2
     assert channel.deposit == 50
 
@@ -305,18 +447,23 @@ def test_default_http_client_existing_channel(
 def test_default_http_client_existing_channel_topup(
         doggo_proxy,
         default_http_client: DefaultHTTPClient,
-        receiver_address
+        receiver_address,
+        http_doggo_url: str
 ):
     client = default_http_client.client
     default_http_client.topup_deposit = lambda x: 13
     channel = client.open_channel(receiver_address, 1)
-    check_response(default_http_client.run('doggo.jpg'))
+    check_response(default_http_client.get(http_doggo_url))
     assert channel.balance == 2
     assert channel.deposit == 13
 
 
-def test_coop_close(doggo_proxy, default_http_client: DefaultHTTPClient):
-    check_response(default_http_client.run('doggo.jpg'))
+def test_coop_close(
+        doggo_proxy,
+        default_http_client: DefaultHTTPClient,
+        http_doggo_url: str
+):
+    check_response(default_http_client.get(http_doggo_url))
 
     client = default_http_client.client
     open_channels = client.get_open_channels()
@@ -337,17 +484,64 @@ def test_coop_close(doggo_proxy, default_http_client: DefaultHTTPClient):
 
 
 @pytest.mark.parametrize('proxy_ssl', [1])
-def test_ssl_client(doggo_proxy, default_http_client: DefaultHTTPClient):
-    default_http_client.use_ssl = True
+def test_ssl_client(
+        doggo_proxy,
+        default_http_client: DefaultHTTPClient,
+        https_doggo_url: str
+):
     with disable_ssl_check():
-        check_response(default_http_client.run('doggo.jpg'))
+        check_response(default_http_client.get(https_doggo_url))
     with pytest.raises(SSLError):
-        check_response(default_http_client.run('doggo.jpg'))
+        check_response(default_http_client.get(https_doggo_url))
 
 
-def test_status_codes(doggo_proxy, default_http_client):
+def test_status_codes(
+        doggo_proxy,
+        default_http_client: DefaultHTTPClient,
+        http_doggo_url: str
+):
     patch_on_http_response(default_http_client, abort_on=[404])
-    default_http_client.run('doggo.jpg')
+    default_http_client.get(http_doggo_url)
     assert default_http_client.last_response.status_code == 200
-    default_http_client.run('does-not-exist')
+    default_http_client.get(http_doggo_url[:-1])
     assert default_http_client.last_response.status_code == 404
+
+
+def test_requests(
+    sender_privkey: str,
+    client_contract_proxy: ChannelContractProxy,
+    client_token_proxy: ContractProxy,
+    revert_chain,
+    api_endpoint_address: str,
+    token_contract_address,
+    channel_manager_contract_address,
+    receiver_address
+):
+    import microraiden.requests
+    microraiden.requests.init(
+        privkey=sender_privkey,
+        channel_manager_proxy=client_contract_proxy,
+        token_proxy=client_token_proxy,
+    )
+
+    with requests_mock.mock() as server_mock:
+        headers1 = Munch()
+        headers1.token_address = token_contract_address
+        headers1.contract_address = channel_manager_contract_address
+        headers1.receiver_address = receiver_address
+        headers1.price = '7'
+
+        headers2 = Munch()
+        headers2.cost = '7'
+
+        headers1 = HTTPHeaders.serialize(headers1)
+        headers2 = HTTPHeaders.serialize(headers2)
+
+        url = 'http://{}/something'.format(api_endpoint_address)
+        server_mock.get(url, [
+            {'status_code': 402, 'headers': headers1},
+            {'status_code': 200, 'headers': headers2, 'text': 'success'}
+        ])
+        response = microraiden.requests.get(url)
+
+    assert response.text == 'success'
