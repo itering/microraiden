@@ -1,5 +1,7 @@
 import json
+import re
 import types
+from unittest import mock
 
 import pytest
 import requests_mock
@@ -10,28 +12,28 @@ from requests.exceptions import SSLError
 
 from microraiden import HTTPHeaders
 from microraiden import DefaultHTTPClient
-from microraiden.contract_proxy import ChannelContractProxy, ContractProxy
+from microraiden.client import Channel
 from microraiden.test.utils.client import patch_on_http_response
 from microraiden.test.utils.disable_ssl_check import disable_ssl_check
 
 
 def check_response(response: Response):
-    assert response and response.text == '"HI I AM A DOGGO"\n'
+    assert response and response.text == 'HI I AM A DOGGO'
 
 
 def test_full_cycle_success(
         default_http_client: DefaultHTTPClient,
         api_endpoint_address: str,
-        token_contract_address,
-        channel_manager_contract_address,
-        receiver_address
+        token_address: str,
+        channel_manager_address: str,
+        receiver_address: str
 ):
     default_http_client.initial_deposit = lambda x: x
 
     with requests_mock.mock() as server_mock:
         headers1 = Munch()
-        headers1.token_address = token_contract_address
-        headers1.contract_address = channel_manager_contract_address
+        headers1.token_address = token_address
+        headers1.contract_address = channel_manager_address
         headers1.receiver_address = receiver_address
         headers1.price = '7'
 
@@ -52,13 +54,13 @@ def test_full_cycle_success(
     request = server_mock.request_history[0]
     assert request.path == '/something'
     assert request.method == 'GET'
-    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Contract-Address'] == channel_manager_address
 
     # Second cycle, pay price.
     request = server_mock.request_history[1]
     assert request.path == '/something'
     assert request.method == 'GET'
-    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Contract-Address'] == channel_manager_address
     assert request.headers['RDN-Balance'] == '7'
 
     channel = default_http_client.get_channel(url)
@@ -72,9 +74,9 @@ def test_full_cycle_success(
 def test_full_cycle_adapt_balance(
         default_http_client: DefaultHTTPClient,
         api_endpoint_address: str,
-        token_contract_address,
-        channel_manager_contract_address,
-        receiver_address
+        token_address: str,
+        channel_manager_address: str,
+        receiver_address: str
 ):
     # Simulate a lost balance signature.
     client = default_http_client.client
@@ -85,8 +87,8 @@ def test_full_cycle_adapt_balance(
 
     with requests_mock.mock() as server_mock:
         headers1 = Munch()
-        headers1.token_address = token_contract_address
-        headers1.contract_address = channel_manager_contract_address
+        headers1.token_address = token_address
+        headers1.contract_address = channel_manager_address
         headers1.receiver_address = receiver_address
         headers1.price = '7'
 
@@ -115,13 +117,13 @@ def test_full_cycle_adapt_balance(
     request = server_mock.request_history[0]
     assert request.path == '/something'
     assert request.method == 'GET'
-    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Contract-Address'] == channel_manager_address
 
     # Second cycle, pay price based on outdated balance.
     request = server_mock.request_history[1]
     assert request.path == '/something'
     assert request.method == 'GET'
-    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Contract-Address'] == channel_manager_address
     assert request.headers['RDN-Balance'] == '7'
     assert request.headers['RDN-Balance-Signature']
 
@@ -129,7 +131,7 @@ def test_full_cycle_adapt_balance(
     request = server_mock.request_history[2]
     assert request.path == '/something'
     assert request.method == 'GET'
-    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Contract-Address'] == channel_manager_address
     assert request.headers['RDN-Balance'] == '10'
 
     channel = default_http_client.get_channel(url)
@@ -143,16 +145,16 @@ def test_full_cycle_adapt_balance(
 def test_full_cycle_error_500(
         default_http_client: DefaultHTTPClient,
         api_endpoint_address: str,
-        token_contract_address,
-        channel_manager_contract_address,
-        receiver_address
+        token_address: str,
+        channel_manager_address: str,
+        receiver_address: str
 ):
     default_http_client.initial_deposit = lambda x: x
 
     with requests_mock.mock() as server_mock:
         headers1 = Munch()
-        headers1.token_address = token_contract_address
-        headers1.contract_address = channel_manager_contract_address
+        headers1.token_address = token_address
+        headers1.contract_address = channel_manager_address
         headers1.receiver_address = receiver_address
         headers1.price = '3'
 
@@ -174,13 +176,13 @@ def test_full_cycle_error_500(
     request = server_mock.request_history[0]
     assert request.path == '/something'
     assert request.method == 'GET'
-    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Contract-Address'] == channel_manager_address
 
     # Second cycle, pay price but receive error.
     request = server_mock.request_history[1]
     assert request.path == '/something'
     assert request.method == 'GET'
-    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Contract-Address'] == channel_manager_address
     assert request.headers['RDN-Balance'] == '3'
 
     channel = default_http_client.get_channel(url)
@@ -192,7 +194,7 @@ def test_full_cycle_error_500(
     request = server_mock.request_history[2]
     assert request.path == '/something'
     assert request.method == 'GET'
-    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Contract-Address'] == channel_manager_address
     assert request.headers['RDN-Balance'] == '3'
     assert channel.balance == 3
     assert request.headers['RDN-Balance-Signature'] == balance_sig_hex
@@ -203,16 +205,16 @@ def test_full_cycle_error_500(
 def test_full_cycle_success_post(
         default_http_client: DefaultHTTPClient,
         api_endpoint_address: str,
-        token_contract_address,
-        channel_manager_contract_address,
-        receiver_address
+        token_address: str,
+        channel_manager_address: str,
+        receiver_address: str
 ):
     default_http_client.initial_deposit = lambda x: x
 
     with requests_mock.mock() as server_mock:
         headers1 = Munch()
-        headers1.token_address = token_contract_address
-        headers1.contract_address = channel_manager_contract_address
+        headers1.token_address = token_address
+        headers1.contract_address = channel_manager_address
         headers1.receiver_address = receiver_address
         headers1.price = '7'
 
@@ -233,14 +235,14 @@ def test_full_cycle_success_post(
     request = server_mock.request_history[0]
     assert request.path == '/something'
     assert request.method == 'POST'
-    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Contract-Address'] == channel_manager_address
     assert request.json()['somefield'] == 'somevalue'
 
     # Second cycle, pay price.
     request = server_mock.request_history[1]
     assert request.path == '/something'
     assert request.method == 'POST'
-    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Contract-Address'] == channel_manager_address
     assert request.headers['RDN-Balance'] == '7'
     assert request.json()['somefield'] == 'somevalue'
 
@@ -255,16 +257,16 @@ def test_full_cycle_success_post(
 def test_custom_headers(
         default_http_client: DefaultHTTPClient,
         api_endpoint_address: str,
-        token_contract_address,
-        channel_manager_contract_address,
-        receiver_address
+        token_address: str,
+        channel_manager_address: str,
+        receiver_address: str
 ):
     default_http_client.initial_deposit = lambda x: x
 
     with requests_mock.mock() as server_mock:
         headers1 = Munch()
-        headers1.token_address = token_contract_address
-        headers1.contract_address = channel_manager_contract_address
+        headers1.token_address = token_address
+        headers1.contract_address = channel_manager_address
         headers1.receiver_address = receiver_address
         headers1.price = '7'
 
@@ -289,7 +291,7 @@ def test_custom_headers(
     request = server_mock.request_history[0]
     assert request.path == '/something'
     assert request.method == 'GET'
-    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Contract-Address'] == channel_manager_address
     assert request.headers['RDN-Balance'] == '5'
     assert request.headers['someheader'] == 'somevalue'
 
@@ -297,7 +299,7 @@ def test_custom_headers(
     request = server_mock.request_history[1]
     assert request.path == '/something'
     assert request.method == 'GET'
-    assert request.headers['RDN-Contract-Address'] == channel_manager_contract_address
+    assert request.headers['RDN-Contract-Address'] == channel_manager_address
     assert request.headers['RDN-Balance'] == '5'
     assert request.headers['someheader'] == 'somevalue'
 
@@ -371,8 +373,8 @@ def test_cheating_client(
 def test_default_http_client(
         doggo_proxy,
         default_http_client: DefaultHTTPClient,
-        sender_address,
-        receiver_address,
+        sender_address: str,
+        receiver_address: str,
         http_doggo_url: str
 ):
     check_response(default_http_client.get(http_doggo_url))
@@ -433,8 +435,7 @@ def test_default_http_client_close(
 def test_default_http_client_existing_channel(
         doggo_proxy,
         default_http_client: DefaultHTTPClient,
-        receiver_privkey,
-        receiver_address,
+        receiver_address: str,
         http_doggo_url: str
 ):
     client = default_http_client.client
@@ -447,7 +448,7 @@ def test_default_http_client_existing_channel(
 def test_default_http_client_existing_channel_topup(
         doggo_proxy,
         default_http_client: DefaultHTTPClient,
-        receiver_address,
+        receiver_address: str,
         http_doggo_url: str
 ):
     client = default_http_client.client
@@ -508,26 +509,19 @@ def test_status_codes(
 
 
 def test_requests(
-    sender_privkey: str,
-    client_contract_proxy: ChannelContractProxy,
-    client_token_proxy: ContractProxy,
+    init_microraiden_requests,
     revert_chain,
     api_endpoint_address: str,
-    token_contract_address,
-    channel_manager_contract_address,
-    receiver_address
+    token_address: str,
+    channel_manager_address: str,
+    receiver_address: str
 ):
     import microraiden.requests
-    microraiden.requests.init(
-        privkey=sender_privkey,
-        channel_manager_proxy=client_contract_proxy,
-        token_proxy=client_token_proxy,
-    )
 
     with requests_mock.mock() as server_mock:
         headers1 = Munch()
-        headers1.token_address = token_contract_address
-        headers1.contract_address = channel_manager_contract_address
+        headers1.token_address = token_address
+        headers1.contract_address = channel_manager_address
         headers1.receiver_address = receiver_address
         headers1.price = '7'
 
@@ -545,3 +539,103 @@ def test_requests(
         response = microraiden.requests.get(url)
 
     assert response.text == 'success'
+
+
+def test_cooperative_close_denied(
+        default_http_client: DefaultHTTPClient,
+        api_endpoint_address: str,
+        token_address: str,
+        channel_manager_address: str,
+        receiver_address: str
+):
+    cooperative_close_denied_mock = mock.patch.object(
+        default_http_client,
+        'on_cooperative_close_denied',
+        wraps=default_http_client.on_cooperative_close_denied
+    ).start()
+
+    with requests_mock.mock() as server_mock:
+        headers = {
+            HTTPHeaders.TOKEN_ADDRESS: token_address,
+            HTTPHeaders.CONTRACT_ADDRESS: channel_manager_address,
+            HTTPHeaders.RECEIVER_ADDRESS: receiver_address,
+            HTTPHeaders.PRICE: '3'
+        }
+        headers = [headers.copy() for _ in range(2)]
+        headers[1][HTTPHeaders.COST] = '3'
+
+        url = 'http://{}/something'.format(api_endpoint_address)
+        server_mock.get(url, [
+            {'status_code': 402, 'headers': headers[0]},
+            {'status_code': 200, 'headers': headers[1], 'text': 'success'},
+        ])
+        channel_url = re.compile(
+            'http://{}/api/1/channels/0x.{{40}}/\d+'.format(api_endpoint_address)
+        )
+        server_mock.delete(channel_url, [
+            {'status_code': 403}
+        ])
+        response = default_http_client.get(url)
+        default_http_client.close_active_channel('http://' + api_endpoint_address)
+
+    assert response.text == 'success'
+    assert cooperative_close_denied_mock.call_count == 1
+    assert default_http_client.client.channels[0].state == Channel.State.settling
+
+
+def test_error_handling(
+        default_http_client: DefaultHTTPClient,
+        api_endpoint_address: str,
+        token_address: str,
+        channel_manager_address: str,
+        receiver_address: str
+):
+    nonexisting_channel_mock = mock.patch.object(
+        default_http_client,
+        'on_nonexisting_channel',
+        wraps=default_http_client.on_nonexisting_channel
+    ).start()
+    insufficient_confirmations_mock = mock.patch.object(
+        default_http_client,
+        'on_insufficient_confirmations',
+        wraps=default_http_client.on_insufficient_confirmations
+    ).start()
+    insufficient_funds_mock = mock.patch.object(
+        default_http_client,
+        'on_insufficient_funds',
+        wraps=default_http_client.on_insufficient_funds
+    ).start()
+    invalid_contract_address_mock = mock.patch.object(
+        default_http_client,
+        'on_invalid_contract_address',
+        wraps=default_http_client.on_invalid_contract_address
+    ).start()
+
+    with requests_mock.mock() as server_mock:
+        headers = {
+            HTTPHeaders.TOKEN_ADDRESS: token_address,
+            HTTPHeaders.CONTRACT_ADDRESS: channel_manager_address,
+            HTTPHeaders.RECEIVER_ADDRESS: receiver_address,
+            HTTPHeaders.PRICE: '3'
+        }
+        headers = [headers.copy() for _ in range(5)]
+        headers[1][HTTPHeaders.NONEXISTING_CHANNEL] = '1'
+        headers[2][HTTPHeaders.INSUF_CONFS] = '1'
+        headers[3][HTTPHeaders.INSUF_FUNDS] = '1'
+        headers[4][HTTPHeaders.CONTRACT_ADDRESS] = '0x' + '12' * 20
+
+        url = 'http://{}/something'.format(api_endpoint_address)
+        server_mock.get(url, [
+            {'status_code': 402, 'headers': headers[0]},
+            {'status_code': 402, 'headers': headers[1]},
+            {'status_code': 402, 'headers': headers[2]},
+            {'status_code': 402, 'headers': headers[3]},
+            {'status_code': 402, 'headers': headers[4]}
+        ])
+        response = default_http_client.get(url)
+
+    assert response is None
+    assert nonexisting_channel_mock.call_count == 1
+    assert insufficient_confirmations_mock.call_count == 1
+    assert insufficient_funds_mock.call_count == 1
+    assert invalid_contract_address_mock.call_count == 1

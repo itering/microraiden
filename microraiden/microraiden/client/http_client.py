@@ -53,8 +53,7 @@ class HTTPClient(object):
         assert url_parts.scheme, 'No protocol scheme specified.'
         return '://'.join(url_parts[:2])
 
-    @staticmethod
-    def close_channel(endpoint_url: str, channel: Channel):
+    def close_channel(self, endpoint_url: str, channel: Channel):
         log.debug(
             'Requesting closing signature from server for balance {} on channel {}/{}/{}.'
             .format(channel.balance, channel.sender, channel.sender, channel.block)
@@ -65,7 +64,7 @@ class HTTPClient(object):
             closing_sig = response.json()['close_signature']
             channel.close_cooperatively(decode_hex(closing_sig))
         else:
-            log.error('No closing signature received: {}'.format(response.text))
+            self.on_cooperative_close_denied(endpoint_url, channel, response)
 
     def get_channel(self, url: str) -> Channel:
         return self.endpoint_to_channel.get(self.get_endpoint(url))
@@ -85,7 +84,7 @@ class HTTPClient(object):
         channel state.
         """
         headers = Munch()
-        headers.contract_address = self.client.channel_manager_address
+        headers.contract_address = self.client.context.channel_manager.address
         channel = self.get_channel(url)
         if channel:
             headers.balance = str(channel.balance)
@@ -96,11 +95,11 @@ class HTTPClient(object):
 
         headers = HTTPHeaders.serialize(headers)
         if 'headers' in kwargs:
-            kwargs['headers'] = {**headers, **kwargs['headers']}
+            headers.update(kwargs['headers'])
+            kwargs['headers'] = headers
         else:
             kwargs['headers'] = headers
         response = requests.request(method, url, **kwargs)
-        response_headers = HTTPHeaders.deserialize(response.headers)
 
         if self.on_http_response(method, url, response, **kwargs) is False:
             return None, False  # user requested abort
@@ -109,19 +108,22 @@ class HTTPClient(object):
             return response, self.on_success(method, url, response, **kwargs)
 
         elif response.status_code == requests.codes.PAYMENT_REQUIRED:
-            if 'insuf_confs' in response_headers:
+            if HTTPHeaders.NONEXISTING_CHANNEL in response.headers:
+                return None, self.on_nonexisting_channel(method, url, response, **kwargs)
+
+            elif HTTPHeaders.INSUF_CONFS in response.headers:
                 return None, self.on_insufficient_confirmations(method, url, response, **kwargs)
 
-            elif 'insuf_funds' in response_headers:
+            elif HTTPHeaders.INSUF_FUNDS in response.headers:
                 return None, self.on_insufficient_funds(method, url, response, **kwargs)
 
-            elif 'contract_address' not in response_headers or not is_same_address(
-                response_headers.contract_address,
-                self.client.channel_manager_address
+            elif HTTPHeaders.CONTRACT_ADDRESS not in response.headers or not is_same_address(
+                response.headers.get(HTTPHeaders.CONTRACT_ADDRESS),
+                self.client.context.channel_manager.address
             ):
                 return None, self.on_invalid_contract_address(method, url, response, **kwargs)
 
-            elif 'invalid_amount' in response_headers:
+            elif HTTPHeaders.INVALID_AMOUNT in response.headers:
                 return None, self.on_invalid_amount(method, url, response, **kwargs)
 
             else:
@@ -143,11 +145,16 @@ class HTTPClient(object):
         return False
 
     def on_insufficient_funds(self, method: str, url: str, response: Response, **kwargs) -> bool:
-        log.error(
-            'Server was unable to verify the transfer - Insufficient funds of the balance proof '
-            'or possibly an unconfirmed or unregistered topup.'
-        )
-        return False
+        return True
+
+    def on_nonexisting_channel(
+            self,
+            method: str,
+            url: str,
+            response: Response,
+            **kwargs
+    ):
+        return True
 
     def on_insufficient_confirmations(
             self,
@@ -176,6 +183,10 @@ class HTTPClient(object):
 
     def on_payment_requested(self, method: str, url: str, response: Response, **kwargs):
         return True
+
+    def on_cooperative_close_denied(self, endpoint_url: str, channel: Channel, response: Response):
+        log.warning('No closing signature received. Closing noncooperatively on a balance of 0.')
+        channel.close(0)
 
     def on_http_response(self, method: str, url: str, response: Response, **kwargs):
         """Called whenever server returns a reply.

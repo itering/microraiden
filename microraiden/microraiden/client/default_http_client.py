@@ -7,7 +7,7 @@ from requests import Response
 
 from microraiden.header import HTTPHeaders
 from microraiden.client import Client
-from microraiden.crypto import verify_balance_proof
+from microraiden.utils import verify_balance_proof
 from .http_client import HTTPClient
 
 log = logging.getLogger(__name__)
@@ -26,6 +26,20 @@ class DefaultHTTPClient(HTTPClient):
         self.initial_deposit = initial_deposit
         self.topup_deposit = topup_deposit
 
+    def on_nonexisting_channel(
+            self,
+            method: str,
+            url: str,
+            response: Response,
+            **kwargs
+    ) -> bool:
+        log.warning(
+            'Channel not registered by server. Retrying in {} seconds.'
+            .format(self.retry_interval)
+        )
+        time.sleep(self.retry_interval)
+        return True
+
     def on_insufficient_confirmations(
             self,
             method: str,
@@ -36,6 +50,14 @@ class DefaultHTTPClient(HTTPClient):
         log.warning(
             'Newly created channel does not have enough confirmations yet. Retrying in {} seconds.'
             .format(self.retry_interval)
+        )
+        time.sleep(self.retry_interval)
+        return True
+
+    def on_insufficient_funds(self, method: str, url: str, response: Response, **kwargs) -> bool:
+        log.warning(
+            'Server was unable to verify the transfer - Insufficient funds of the balance proof '
+            'or possibly an unconfirmed or unregistered topup. Retrying in {} seconds.'
         )
         time.sleep(self.retry_interval)
         return True
@@ -60,7 +82,7 @@ class DefaultHTTPClient(HTTPClient):
                 channel.block,
                 last_balance,
                 balance_sig,
-                self.client.channel_manager_address
+                self.client.context.channel_manager.address
             ),
             channel.sender
         )
