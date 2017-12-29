@@ -1,21 +1,21 @@
 import pytest
 from ethereum import tester
-from tests.utils import print_logs
+from utils import sign
+from tests.utils import (
+    print_logs,
+    balance_proof_hash,
+    closing_message_hash
+)
 from tests.fixtures import (
+    print_the_logs,
+    channel_params,
     owner_index,
     owner,
     contract_params,
     create_contract,
     get_token_contract,
-    event_handler,
-    print_gas,
-    txn_gas,
-    uraiden_events,
     get_block
 )
-
-
-print_the_logs = False
 
 
 @pytest.fixture()
@@ -73,75 +73,59 @@ def uraiden_instance(owner, uraiden_contract):
     return uraiden_instance
 
 
-@pytest.fixture(params=['20', '223'])
-def get_channel(web3, request, owner, get_accounts, event_handler, print_gas, txn_gas, get_block):
-    def get(uraiden_instance, token_instance, deposit, sender=None, receiver=None):
-        contract_type = request.param
-        ev_handler = event_handler(uraiden_instance)
-        gas_used_create = 0
+@pytest.fixture
+def get_channel(channel_params, owner, get_accounts, uraiden_instance, token_instance, get_block):
+    def get(uraiden=None, token=None, deposit=None, sender=None, receiver=None, contract_type=None):
+        deposit = deposit or channel_params['deposit']
+        contract_type = contract_type or channel_params['type']
+        balance = channel_params['balance']
+        uraiden = uraiden or uraiden_instance
+        token = token or token_instance
 
         if not sender:
             (sender, receiver) = get_accounts(2)
 
         # Supply accounts with tokens
-        token_instance.transact({"from": owner}).transfer(sender, deposit + 500)
-        token_instance.transact({"from": owner}).transfer(receiver, 100)
-
-        # Memorize balances for tests
-        uraiden_pre_balance = token_instance.call().balanceOf(uraiden_instance.address)
-        sender_pre_balance = token_instance.call().balanceOf(sender)
-        receiver_pre_balance = token_instance.call().balanceOf(receiver)
+        token.transact({"from": owner}).transfer(sender, deposit + 500)
+        token.transact({"from": owner}).transfer(receiver, 100)
 
         # Create channel (ERC20 or ERC223 logic)
         if contract_type == '20':
-            txn_hash = token_instance.transact({"from": sender}).approve(
-                uraiden_instance.address,
+            token.transact({"from": sender}).approve(
+                uraiden.address,
                 deposit
             )
-            gas_used_create += txn_gas(txn_hash)
-            txn_hash = uraiden_instance.transact({"from": sender}).createChannelERC20(
+            txn_hash = uraiden.transact({"from": sender}).createChannelERC20(
                 receiver,
                 deposit
             )
-            message = 'test_channel_20_create'
         else:
-            txdata = receiver[2:].zfill(40)
-            txdata = bytes.fromhex(txdata)
-            txn_hash = token_instance.transact({"from": sender}).transfer(
-                uraiden_instance.address,
+            txdata = bytes.fromhex(receiver[2:].zfill(40))
+            txn_hash = token.transact({"from": sender}).transfer(
+                uraiden.address,
                 deposit,
                 txdata
             )
-            message = 'test_channel_223_create'
-
-        # Check token balances post channel creation
-        uraiden_balance = uraiden_pre_balance + deposit
-        assert token_instance.call().balanceOf(uraiden_instance.address) == uraiden_balance
-        assert token_instance.call().balanceOf(sender) == sender_pre_balance - deposit
-        assert token_instance.call().balanceOf(receiver) == receiver_pre_balance
-
-        # Check creation event
-        ev_handler.add(
-            txn_hash,
-            uraiden_events['created'],
-            checkCreatedEvent(sender, receiver, deposit)
-        )
-        ev_handler.check()
 
         open_block_number = get_block(txn_hash)
-        channel_data = uraiden_instance.call().getChannelInfo(sender, receiver, open_block_number)
-        assert channel_data[0] == uraiden_instance.call().getKey(
-            sender,
+
+        balance_message_hash = balance_proof_hash(
             receiver,
-            open_block_number
+            open_block_number,
+            balance,
+            uraiden_instance.address
         )
-        assert channel_data[1] == deposit
-        assert channel_data[2] == 0
-        assert channel_data[3] == 0
+        balance_msg_sig, addr = sign.check(balance_message_hash, tester.k2)
 
-        print_gas(txn_hash, message, gas_used_create)
+        closing_msg_hash = closing_message_hash(
+            sender,
+            open_block_number,
+            balance,
+            uraiden_instance.address
+        )
+        closing_sig, addr = sign.check(closing_msg_hash, tester.k3)
 
-        return (sender, receiver, open_block_number)
+        return (sender, receiver, open_block_number, balance_msg_sig, closing_sig)
     return get
 
 

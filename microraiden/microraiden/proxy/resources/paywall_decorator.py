@@ -102,7 +102,10 @@ class Paywall(object):
             data = RequestData(request.headers, request.cookies)
         except ValueError as e:
             return str(e), 409
-        accepts_html = r'text/html' in request.headers.get('Accept', '')
+        accepts_html = (
+            'text/html' in request.accept_mimetypes and
+            request.accept_mimetypes.best != '*/*'
+        )
         headers = {}
 
         price = resource.price()
@@ -118,11 +121,26 @@ class Paywall(object):
 
         # all ok, return actual content
         resp = method(request.path, *args, **kwargs)
+
+        # merge headers, resource headers take precedence
+        headers_lower = {key.lower(): value for key, value in headers.items()}
+        lower_to_case = {key.lower(): key for key in headers}
+
         if isinstance(resp, Response):
-            return resp
+            resource_headers = (key for key, value in resp.headers)
         else:
             data, code, resource_headers = unpack(resp)
-            resource_headers.update(headers)
+
+        for key in resource_headers:
+            key_lower = key.lower()
+            if key_lower in headers_lower:
+                headers.pop(lower_to_case[key_lower])
+
+        if isinstance(resp, Response):
+            resp.headers.extend(headers)
+            return resp
+        else:
+            headers.update(resource_headers)
             return make_response(str(data), code, resource_headers)
 
     def paywall_check(self, price, data):
@@ -199,14 +217,9 @@ class Paywall(object):
             "Content-Type": "text/html",
         })
         reply = make_response(reply_data, 402, headers)
-        for hdr in (header.GATEWAY_PATH,
-                    header.CONTRACT_ADDRESS,
-                    header.RECEIVER_ADDRESS,
-                    header.PRICE,
-                    header.NONEXISTING_CHANNEL,
-                    header.TOKEN_ADDRESS):
-            if hdr in headers:
-                reply.set_cookie(hdr, str(headers[hdr]))
+        for k, v in headers.items():
+            if k.startswith('RDN-'):
+                reply.set_cookie(k, str(v))
         return reply
 
 
