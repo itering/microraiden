@@ -7,8 +7,10 @@ from ethereum.exceptions import InsufficientBalance
 from web3 import Web3
 from web3.contract import Contract
 from web3.exceptions import BadFunctionCallOutput
+from eth_utils import is_same_address, to_checksum_address
 
-import microraiden.config as config
+from microraiden.config import NETWORK_CFG
+from microraiden.constants import PROXY_BALANCE_LIMIT
 from microraiden.utils import get_logs
 
 
@@ -40,6 +42,7 @@ class Blockchain(gevent.Greenlet):
         #  - used to dispute/close channels that are in CHALLENGED state after manager
         #     has ether to spend again
         self.insufficient_balance = False
+        self.sync_start_block = NETWORK_CFG.start_sync_block
 
     def _run(self):
         self.running = True
@@ -95,9 +98,9 @@ class Blockchain(gevent.Greenlet):
                 assert False  # unreachable as long as confirmation level is set high enough
 
         if self.cm.state.confirmed_head_number is None:
-            self.cm.state.update_sync_state(confirmed_head_number=-1)
+            self.cm.state.update_sync_state(confirmed_head_number=self.sync_start_block)
         if self.cm.state.unconfirmed_head_number is None:
-            self.cm.state.update_sync_state(unconfirmed_head_number=-1)
+            self.cm.state.update_sync_state(unconfirmed_head_number=self.sync_start_block)
         new_unconfirmed_head_number = self.cm.state.unconfirmed_head_number + self.sync_chunk_size
         new_unconfirmed_head_number = min(new_unconfirmed_head_number, current_block)
         new_confirmed_head_number = max(new_unconfirmed_head_number - self.n_confirmations, 0)
@@ -112,14 +115,14 @@ class Blockchain(gevent.Greenlet):
             'from_block': self.cm.state.confirmed_head_number + 1,
             'to_block': new_confirmed_head_number,
             'argument_filters': {
-                '_receiver': self.cm.state.receiver
+                '_receiver_address': self.cm.state.receiver
             }
         }
         filters_unconfirmed = {
             'from_block': self.cm.state.unconfirmed_head_number + 1,
             'to_block': new_unconfirmed_head_number,
             'argument_filters': {
-                '_receiver': self.cm.state.receiver
+                '_receiver_address': self.cm.state.receiver
             }
         }
         self.log.debug(
@@ -138,8 +141,9 @@ class Blockchain(gevent.Greenlet):
             **filters_unconfirmed
         )
         for log in logs:
-            assert log['args']['_receiver'] == self.cm.state.receiver
-            sender = log['args']['_sender']
+            assert is_same_address(log['args']['_receiver_address'], self.cm.state.receiver)
+            sender = log['args']['_sender_address']
+            sender = to_checksum_address(sender)
             deposit = log['args']['_deposit']
             open_block_number = log['blockNumber']
             self.log.debug(
@@ -156,8 +160,9 @@ class Blockchain(gevent.Greenlet):
             **filters_confirmed
         )
         for log in logs:
-            assert log['args']['_receiver'] == self.cm.state.receiver
-            sender = log['args']['_sender']
+            assert is_same_address(log['args']['_receiver_address'], self.cm.state.receiver)
+            sender = log['args']['_sender_address']
+            sender = to_checksum_address(sender)
             deposit = log['args']['_deposit']
             open_block_number = log['blockNumber']
             self.log.debug('received ChannelOpened event (sender %s, block number %s)',
@@ -171,9 +176,10 @@ class Blockchain(gevent.Greenlet):
             **filters_unconfirmed
         )
         for log in logs:
-            assert log['args']['_receiver'] == self.cm.state.receiver
+            assert is_same_address(log['args']['_receiver_address'], self.cm.state.receiver)
             txhash = log['transactionHash']
-            sender = log['args']['_sender']
+            sender = log['args']['_sender_address']
+            sender = to_checksum_address(sender)
             open_block_number = log['args']['_open_block_number']
             added_deposit = log['args']['_added_deposit']
             self.log.debug(
@@ -196,9 +202,10 @@ class Blockchain(gevent.Greenlet):
             **filters_confirmed
         )
         for log in logs:
-            assert log['args']['_receiver'] == self.cm.state.receiver
+            assert is_same_address(log['args']['_receiver_address'], self.cm.state.receiver)
             txhash = log['transactionHash']
-            sender = log['args']['_sender']
+            sender = log['args']['_sender_address']
+            sender = to_checksum_address(sender)
             open_block_number = log['args']['_open_block_number']
             added_deposit = log['args']['_added_deposit']
             self.log.debug(
@@ -216,8 +223,9 @@ class Blockchain(gevent.Greenlet):
             **filters_confirmed
         )
         for log in logs:
-            assert log['args']['_receiver'] == self.cm.state.receiver
-            sender = log['args']['_sender']
+            assert is_same_address(log['args']['_receiver_address'], self.cm.state.receiver)
+            sender = log['args']['_sender_address']
+            sender = to_checksum_address(sender)
             open_block_number = log['args']['_open_block_number']
             self.log.debug('received ChannelSettled event (sender %s, block number %s)',
                            sender, open_block_number)
@@ -230,8 +238,9 @@ class Blockchain(gevent.Greenlet):
             **filters_confirmed
         )
         for log in logs:
-            assert log['args']['_receiver'] == self.cm.state.receiver
-            sender = log['args']['_sender']
+            assert is_same_address(log['args']['_receiver_address'], self.cm.state.receiver)
+            sender = log['args']['_sender_address']
+            sender = to_checksum_address(sender)
             open_block_number = log['args']['_open_block_number']
             if (sender, open_block_number) not in self.cm.channels:
                 continue
@@ -282,7 +291,7 @@ class Blockchain(gevent.Greenlet):
 
     def insufficient_balance_recover(self):
         balance = self.web3.eth.getBalance(self.cm.receiver)
-        if balance < config.PROXY_BALANCE_LIMIT:
+        if balance < PROXY_BALANCE_LIMIT:
             return
         try:
             self.cm.close_pending_channels()

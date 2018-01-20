@@ -1,5 +1,7 @@
 import logging
 from itertools import count
+from typing import List
+
 from eth_utils import is_same_address, encode_hex
 from web3 import Web3
 from web3.contract import Contract
@@ -39,6 +41,7 @@ def test_channel_opening(
         client: Client,
         web3: Web3,
         make_account,
+        private_keys: List[str],
         channel_manager_contract,
         token_contract,
         mine_sync_event,
@@ -46,8 +49,16 @@ def test_channel_opening(
         use_tester,
         state_db_path
 ):
-    receiver1_privkey = make_account(RECEIVER_ETH_ALLOWANCE, RECEIVER_TOKEN_ALLOWANCE)
-    receiver2_privkey = make_account(RECEIVER_ETH_ALLOWANCE, RECEIVER_TOKEN_ALLOWANCE)
+    receiver1_privkey = make_account(
+        RECEIVER_ETH_ALLOWANCE,
+        RECEIVER_TOKEN_ALLOWANCE,
+        private_keys[2]
+    )
+    receiver2_privkey = make_account(
+        RECEIVER_ETH_ALLOWANCE,
+        RECEIVER_TOKEN_ALLOWANCE,
+        private_keys[3]
+    )
     receiver_address = privkey_to_addr(receiver1_privkey)
     # make sure channel_manager1 is terminated properly, otherwise Blockchain will be running
     #  in the background, ruining other tests' results
@@ -131,7 +142,6 @@ def test_close_unconfirmed_event(
 def test_close_confirmed_event(
         channel_manager: ChannelManager,
         confirmed_open_channel: Channel,
-        web3: Web3,
         wait_for_blocks
 ):
     blockchain = channel_manager.blockchain
@@ -157,8 +167,12 @@ def test_channel_settled_event(
         channel_manager: ChannelManager,
         confirmed_open_channel: Channel,
         wait_for_blocks,
-        web3: Web3
+        web3: Web3,
+        use_tester: bool
 ):
+    if not use_tester:
+        pytest.skip('This test takes several hours on real blockchains.')
+
     blockchain = channel_manager.blockchain
     channel_manager.wait_sync()
     channel_id = (confirmed_open_channel.sender, confirmed_open_channel.block)
@@ -424,8 +438,12 @@ def test_settlement(
         wait_for_blocks,
         web3: Web3,
         token_contract: Contract,
-        sender_address: str
+        sender_address: str,
+        use_tester: bool
 ):
+    if not use_tester:
+        pytest.skip('This test takes several hours on real blockchains.')
+
     blockchain = channel_manager.blockchain
     channel_id = (confirmed_open_channel.sender, confirmed_open_channel.block)
 
@@ -536,6 +554,7 @@ def test_balances(
 def test_different_receivers(
         web3: Web3,
         make_account,
+        private_keys: List[str],
         channel_manager_contract: Contract,
         token_contract: Contract,
         mine_sync_event,
@@ -545,8 +564,19 @@ def test_different_receivers(
         use_tester: bool,
         state_db_path: str
 ):
-    receiver1_privkey = make_account(RECEIVER_ETH_ALLOWANCE, RECEIVER_TOKEN_ALLOWANCE)
-    receiver2_privkey = make_account(RECEIVER_ETH_ALLOWANCE, RECEIVER_TOKEN_ALLOWANCE)
+    if not use_tester:
+        pytest.skip('This test takes several hours on real blockchains.')
+
+    receiver1_privkey = make_account(
+        RECEIVER_ETH_ALLOWANCE,
+        RECEIVER_TOKEN_ALLOWANCE,
+        private_keys[2]
+    )
+    receiver2_privkey = make_account(
+        RECEIVER_ETH_ALLOWANCE,
+        RECEIVER_TOKEN_ALLOWANCE,
+        private_keys[3]
+    )
     receiver1_address = privkey_to_addr(receiver1_privkey)
     channel_manager1 = ChannelManager(
         web3,
@@ -578,6 +608,7 @@ def test_different_receivers(
     channel = client.open_channel(receiver1_address, 10)
     wait_for_blocks(1)
     gevent.sleep(blockchain.poll_interval)
+
     assert (sender_address, channel.block) in channel_manager1.unconfirmed_channels
     assert (sender_address, channel.block) not in channel_manager2.unconfirmed_channels
 

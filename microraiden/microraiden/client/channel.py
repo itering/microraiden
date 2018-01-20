@@ -37,8 +37,8 @@ class Channel:
         self._balance_sig = None
 
         self.core = core
-        self.sender = sender.lower()
-        self.receiver = receiver.lower()
+        self.sender = sender
+        self.receiver = receiver
         self.deposit = deposit
         self.block = block
         self.update_balance(balance)
@@ -94,7 +94,9 @@ class Channel:
         ))
         current_block = self.core.web3.eth.blockNumber
 
-        data = decode_hex(self.receiver) + self.block.to_bytes(4, byteorder='big')
+        data = (decode_hex(self.sender) +
+                decode_hex(self.receiver) +
+                self.block.to_bytes(4, byteorder='big'))
         tx = create_signed_contract_transaction(
             self.core.private_key,
             self.core.token,
@@ -113,8 +115,8 @@ class Channel:
             'ChannelToppedUp',
             from_block=current_block + 1,
             argument_filters={
-                '_sender': self.sender,
-                '_receiver': self.receiver,
+                '_sender_address': self.sender,
+                '_receiver_address': self.receiver,
                 '_open_block_number': self.block
             }
         )
@@ -161,8 +163,8 @@ class Channel:
             'ChannelCloseRequested',
             from_block=current_block + 1,
             argument_filters={
-                '_sender': self.sender,
-                '_receiver': self.receiver,
+                '_sender_address': self.sender,
+                '_receiver_address': self.receiver,
                 '_open_block_number': self.block
             }
         )
@@ -221,8 +223,8 @@ class Channel:
             'ChannelSettled',
             from_block=current_block + 1,
             argument_filters={
-                '_sender': self.sender,
-                '_receiver': self.receiver,
+                '_sender_address': self.sender,
+                '_receiver_address': self.receiver,
                 '_open_block_number': self.block
             }
         )
@@ -248,7 +250,7 @@ class Channel:
             self.receiver, self.block
         ))
 
-        _, _, settle_block, _ = self.core.channel_manager.call().getChannelInfo(
+        _, _, settle_block, _, _ = self.core.channel_manager.call().getChannelInfo(
             self.sender, self.receiver, self.block
         )
 
@@ -277,8 +279,8 @@ class Channel:
             'ChannelSettled',
             from_block=current_block + 1,
             argument_filters={
-                '_sender': self.sender,
-                '_receiver': self.receiver,
+                '_sender_address': self.sender,
+                '_receiver_address': self.receiver,
                 '_open_block_number': self.block
             }
         )

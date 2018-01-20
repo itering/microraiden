@@ -4,7 +4,7 @@ function mainSwitch(id) {
   $(".container").show();
 }
 
-function pageReady(contractABI, tokenABI) {
+function pageReady(contractABI, tokenABI, startBlock) {
 
   // ==== BASIC INITIALIZATION ====
 
@@ -22,6 +22,7 @@ function pageReady(contractABI, tokenABI) {
     contractABI,
     uRaidenParams.token,
     tokenABI,
+    startBlock,
   );
 
   // ==== MAIN VARIABLES ====
@@ -128,7 +129,7 @@ function pageReady(contractABI, tokenABI) {
     uraiden.loadStoredChannel(account, uRaidenParams.receiver);
     if (uraiden.isChannelValid() && Cookies.get("RDN-Balance-Signature")) {
       uraiden.verifyProof({
-        balance: new microraiden.BigNumber(Cookies.get("RDN-Sender-Balance")),
+        balance: uraiden.web3.toBigNumber(Cookies.get("RDN-Sender-Balance")),
         sig: Cookies.get("RDN-Balance-Signature"),
       });
     }
@@ -354,7 +355,7 @@ $(function() {
         setTimeout(function() { location.reload(); }, 5000);
       } else if (cnt <= 0 || window.web3) {
         clearInterval(pollingId);
-        pageReady(json['manager_abi'], json['token_abi']);
+        pageReady(json['manager_abi'], json['token_abi'], json['sync_block']);
       } else {
         --cnt;
       }

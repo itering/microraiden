@@ -2,9 +2,9 @@ import logging
 from typing import List
 
 import os
-from eth_utils import decode_hex, is_same_address, is_hex, remove_0x_prefix
+from eth_utils import decode_hex, is_same_address, is_hex, remove_0x_prefix, to_checksum_address
 from web3 import Web3
-from web3.providers.rpc import RPCProvider
+from web3.providers.rpc import HTTPProvider
 
 from microraiden.utils import (
     get_private_key,
@@ -13,7 +13,8 @@ from microraiden.utils import (
     create_signed_contract_transaction
 )
 
-from microraiden.config import CHANNEL_MANAGER_ADDRESS
+import microraiden.config as config
+from microraiden.constants import WEB3_PROVIDER_DEFAULT
 from microraiden.client.context import Context
 from microraiden.client.channel import Channel
 
@@ -25,7 +26,7 @@ class Client:
             self,
             private_key: str = None,
             key_password_path: str = None,
-            channel_manager_address: str = CHANNEL_MANAGER_ADDRESS,
+            channel_manager_address: str = None,
             web3: Web3 = None
     ) -> None:
         is_hex_key = is_hex(private_key) and len(remove_0x_prefix(private_key)) == 64
@@ -42,7 +43,11 @@ class Client:
         # Create web3 context if none is provided, either by using the proxies' context or creating
         # a new one.
         if not web3:
-            web3 = Web3(RPCProvider())
+            web3 = Web3(HTTPProvider(WEB3_PROVIDER_DEFAULT))
+
+        channel_manager_address = (
+            channel_manager_address or config.CHANNEL_MANAGER_ADDRESS
+        )
 
         self.context = Context(private_key, web3, channel_manager_address)
 
@@ -54,7 +59,7 @@ class Client:
         with channel information available on the blockchain to make up for local data loss.
         Naturally, balance signatures cannot be recovered from the blockchain.
         """
-        filters = {'_sender': self.context.address}
+        filters = {'_sender_address': self.context.address}
         create = get_logs(
             self.context.channel_manager,
             'ChannelCreated',
@@ -79,10 +84,10 @@ class Client:
         channel_key_to_channel = {}
 
         def get_channel(event) -> Channel:
-            sender = event['args']['_sender']
-            receiver = event['args']['_receiver']
+            sender = to_checksum_address(event['args']['_sender_address'])
+            receiver = to_checksum_address(event['args']['_receiver_address'])
             block = event['args'].get('_open_block_number', event['blockNumber'])
-            assert sender == self.context.address
+            assert is_same_address(sender, self.context.address)
             return channel_key_to_channel.get((sender, receiver, block), None)
 
         for c in self.channels:
@@ -95,13 +100,13 @@ class Client:
             else:
                 c = Channel(
                     self.context,
-                    e['args']['_sender'],
-                    e['args']['_receiver'],
+                    to_checksum_address(e['args']['_sender_address']),
+                    to_checksum_address(e['args']['_receiver_address']),
                     e['blockNumber'],
                     e['args']['_deposit'],
                     on_settle=lambda channel: self.channels.remove(channel)
                 )
-                assert c.sender == self.context.address
+                assert is_same_address(c.sender, self.context.address)
                 channel_key_to_channel[(c.sender, c.receiver, c.block)] = c
 
         for e in topup:
@@ -149,7 +154,7 @@ class Client:
             receiver_address, deposit, current_block
         ))
 
-        data = decode_hex(receiver_address)
+        data = decode_hex(self.context.address) + decode_hex(receiver_address)
         tx = create_signed_contract_transaction(
             self.context.private_key,
             self.context.token,
@@ -164,22 +169,25 @@ class Client:
 
         log.debug('Waiting for channel creation event on the blockchain...')
         filters = {
-            '_sender': self.context.address,
-            '_receiver': receiver_address
+            '_sender_address': self.context.address,
+            '_receiver_address': receiver_address
         }
         event = get_event_blocking(
             self.context.channel_manager,
             'ChannelCreated',
             from_block=current_block + 1,
+            to_block='latest',
             argument_filters=filters
         )
 
         if event:
             log.debug('Event received. Channel created in block {}.'.format(event['blockNumber']))
+            assert is_same_address(event['args']['_sender_address'], self.context.address)
+            assert is_same_address(event['args']['_receiver_address'], receiver_address)
             channel = Channel(
                 self.context,
-                event['args']['_sender'],
-                event['args']['_receiver'],
+                self.context.address,
+                receiver_address,
                 event['blockNumber'],
                 event['args']['_deposit'],
                 on_settle=lambda c: self.channels.remove(c)

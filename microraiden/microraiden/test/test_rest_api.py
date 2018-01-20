@@ -3,7 +3,8 @@ import requests
 import json
 import gevent
 
-from microraiden.config import API_PATH
+from eth_utils import is_same_address
+from microraiden.constants import API_PATH
 from microraiden.proxy.paywalled_proxy import PaywalledProxy
 
 
@@ -70,8 +71,9 @@ def test_stats(doggo_proxy: PaywalledProxy, api_endpoint_address):
     assert 'token_address' in stats
     assert 'receiver_address' in stats
     assert 'contract_address' in stats
-    assert stats['receiver_address'] == doggo_proxy.channel_manager.receiver
+    assert stats['sync_block'] == doggo_proxy.channel_manager.blockchain.sync_start_block
+    assert is_same_address(stats['receiver_address'], doggo_proxy.channel_manager.receiver)
     token_address = doggo_proxy.channel_manager.token_contract.address
-    assert stats['token_address'] == token_address
+    assert is_same_address(stats['token_address'], token_address)
     contract_address = doggo_proxy.channel_manager.channel_manager_contract.address
-    assert stats['contract_address'] == contract_address
+    assert is_same_address(stats['contract_address'], contract_address)

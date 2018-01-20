@@ -12,16 +12,15 @@ from populus.wait import Wait
 
 from web3 import Web3, EthereumTesterProvider
 from web3.contract import Contract
-from web3.providers.rpc import RPCProvider
+from web3.providers.rpc import HTTPProvider
 
+from microraiden.config import NETWORK_CFG
+from microraiden.constants import WEB3_PROVIDER_DEFAULT
 from microraiden.utils import (
     addr_from_sig,
     keccak256,
 )
 from microraiden.test.config import (
-    CHANNEL_MANAGER_ADDRESS,
-    FAUCET_ADDRESS,
-    FAUCET_PRIVKEY,
     FAUCET_ALLOWANCE,
     INITIAL_TOKEN_SUPPLY
 )
@@ -40,7 +39,7 @@ def disable_requests_loggin():
     logging.getLogger('urllib3').setLevel(logging.WARNING)
 
 
-def deploy_token_contract(web3, deployer_address, token_abi, token_bytecode):
+def deploy_token_contract(web3, deployer_address, faucet_address, token_abi, token_bytecode):
     Token = web3.eth.contract(abi=token_abi, bytecode=token_bytecode)
     txhash = Token.deploy(
         {'from': deployer_address}, args=[INITIAL_TOKEN_SUPPLY, "Raiden Network Token", "RDN", 18]
@@ -48,7 +47,7 @@ def deploy_token_contract(web3, deployer_address, token_abi, token_bytecode):
     receipt = web3.eth.getTransactionReceipt(txhash)
     contract_address = receipt.contractAddress
     token = Token(contract_address)
-    token.transact({'from': deployer_address}).transfer(FAUCET_ADDRESS, FAUCET_ALLOWANCE)
+    token.transact({'from': deployer_address}).transfer(faucet_address, FAUCET_ALLOWANCE)
     assert web3.eth.getCode(contract_address) != '0x'
     return token
 
@@ -58,17 +57,24 @@ def token_address(
         use_tester,
         web3,
         deployer_address,
+        faucet_address,
         token_abi,
         token_bytecode,
         channel_manager_abi
 ):
     if use_tester:
-        contract = deploy_token_contract(web3, deployer_address, token_abi, token_bytecode)
+        contract = deploy_token_contract(
+            web3,
+            deployer_address,
+            faucet_address,
+            token_abi,
+            token_bytecode
+        )
         return contract.address
     else:
         channel_manager = web3.eth.contract(
             abi=channel_manager_abi,
-            address=CHANNEL_MANAGER_ADDRESS
+            address=NETWORK_CFG.CHANNEL_MANAGER_ADDRESS
         )
         return channel_manager.call().token()
 
@@ -81,7 +87,7 @@ def deploy_channel_manager_contract(
         token_address
 ):
     ChannelManager = web3.eth.contract(abi=channel_manager_abi, bytecode=channel_manager_bytecode)
-    txhash = ChannelManager.deploy({'from': deployer_address}, args=[token_address, 500])
+    txhash = ChannelManager.deploy({'from': deployer_address}, args=[token_address, 500, []])
     contract_address = web3.eth.getTransactionReceipt(txhash).contractAddress
     web3.testing.mine(1)
 
@@ -107,11 +113,11 @@ def channel_manager_address(
         )
         return contract.address
     else:
-        return CHANNEL_MANAGER_ADDRESS
+        return NETWORK_CFG.CHANNEL_MANAGER_ADDRESS
 
 
 @pytest.fixture(scope='session')
-def web3(use_tester, mine_sync_event):
+def web3(use_tester: bool, faucet_private_key: str, faucet_address: str, mine_sync_event):
     if use_tester:
         provider = EthereumTesterProvider()
         web3 = Web3(provider)
@@ -156,21 +162,22 @@ def web3(use_tester, mine_sync_event):
         )
 
         # add faucet account to tester
-        ethereum.tester.accounts.append(decode_hex(FAUCET_ADDRESS))
-        ethereum.tester.keys.append(decode_hex(FAUCET_PRIVKEY))
+        ethereum.tester.accounts.append(decode_hex(faucet_address))
+        ethereum.tester.keys.append(decode_hex(faucet_private_key))
 
         # make faucet rich
-        web3.eth.sendTransaction({'to': FAUCET_ADDRESS, 'value': FAUCET_ALLOWANCE})
+        web3.eth.sendTransaction({'to': faucet_address, 'value': FAUCET_ALLOWANCE})
 
     else:
-        rpc = RPCProvider('localhost', 8545)
+        rpc = HTTPProvider(WEB3_PROVIDER_DEFAULT)
         web3 = Web3(rpc)
+        NETWORK_CFG.set_defaults(int(web3.version.network))
 
     yield web3
 
     if use_tester:
-        ethereum.tester.accounts.remove(decode_hex(FAUCET_ADDRESS))
-        ethereum.tester.keys.remove(decode_hex(FAUCET_PRIVKEY))
+        ethereum.tester.accounts.remove(decode_hex(faucet_address))
+        ethereum.tester.keys.remove(decode_hex(faucet_private_key))
 
 
 @pytest.fixture
@@ -234,11 +241,13 @@ def wait_for_transaction(wait):
 
 
 @pytest.fixture
-def revert_chain(web3: Web3, use_tester: bool):
+def revert_chain(web3: Web3, use_tester: bool, sender_privkey: str, receiver_privkey: str):
     if use_tester:
         snapshot_id = web3.testing.snapshot()
         yield
         web3.testing.revert(snapshot_id)
+    else:
+        yield
 
 
 @pytest.fixture(scope='session')

@@ -6,12 +6,10 @@ from eth_utils import decode_hex, encode_hex
 from ethereum.transactions import Transaction
 from web3 import Web3
 from web3.contract import Contract
-from web3.formatters import input_filter_params_formatter, log_array_formatter
-from web3.utils.events import get_event_data
-from web3.utils.filters import construct_event_filter_params
 
-from microraiden.config import GAS_PRICE, GAS_LIMIT
+from microraiden.config import NETWORK_CFG
 from microraiden.utils import privkey_to_addr, sign_transaction
+from microraiden.utils.populus_compat import LogFilter
 
 DEFAULT_TIMEOUT = 60
 DEFAULT_RETRY_INTERVAL = 3
@@ -24,12 +22,14 @@ def create_signed_transaction(
         value: int=0,
         data=b'',
         nonce_offset: int = 0,
-        gas_price: int = GAS_PRICE,
-        gas_limit: int = GAS_LIMIT
+        gas_price: Union[int, None] = None,
+        gas_limit: int = NETWORK_CFG.POT_GAS_LIMIT
 ) -> str:
     """
     Creates a signed on-chain transaction compliant with EIP155.
     """
+    if gas_price is None:
+        gas_price = NETWORK_CFG.GAS_PRICE
     tx = create_transaction(
         web3=web3,
         from_=privkey_to_addr(private_key),
@@ -40,7 +40,7 @@ def create_signed_transaction(
         gas_price=gas_price,
         gas_limit=gas_limit
     )
-    sign_transaction(tx, private_key, web3.version.network)
+    sign_transaction(tx, private_key, int(web3.version.network))
     return encode_hex(rlp.encode(tx))
 
 
@@ -51,9 +51,11 @@ def create_transaction(
         data: bytes = b'',
         nonce_offset: int = 0,
         value: int = 0,
-        gas_price: int = GAS_PRICE,
-        gas_limit: int = GAS_LIMIT
+        gas_price: Union[int, None] = None,
+        gas_limit: int = NETWORK_CFG.POT_GAS_LIMIT
 ) -> Transaction:
+    if gas_price is None:
+        gas_price = NETWORK_CFG.GAS_PRICE
     nonce = web3.eth.getTransactionCount(from_, 'pending') + nonce_offset
     tx = Transaction(nonce, gas_price, gas_limit, to, value, data)
     tx.sender = decode_hex(from_)
@@ -67,12 +69,14 @@ def create_signed_contract_transaction(
         args: List[Any],
         value: int=0,
         nonce_offset: int = 0,
-        gas_price: int = GAS_PRICE,
-        gas_limit: int = GAS_LIMIT
+        gas_price: Union[int, None] = None,
+        gas_limit: int = NETWORK_CFG.GAS_LIMIT
 ) -> str:
     """
     Creates a signed on-chain contract transaction compliant with EIP155.
     """
+    if gas_price is None:
+        gas_price = NETWORK_CFG.GAS_PRICE
     tx = create_contract_transaction(
         contract=contract,
         from_=privkey_to_addr(private_key),
@@ -83,7 +87,7 @@ def create_signed_contract_transaction(
         gas_price=gas_price,
         gas_limit=gas_limit
     )
-    sign_transaction(tx, private_key, contract.web3.version.network)
+    sign_transaction(tx, private_key, int(contract.web3.version.network))
     return encode_hex(rlp.encode(tx))
 
 
@@ -94,9 +98,11 @@ def create_contract_transaction(
         args: List[Any],
         value: int = 0,
         nonce_offset: int = 0,
-        gas_price: int = GAS_PRICE,
-        gas_limit: int = GAS_LIMIT
+        gas_price: Union[int, None] = None,
+        gas_limit: int = NETWORK_CFG.GAS_LIMIT
 ) -> Transaction:
+    if gas_price is None:
+        gas_price = NETWORK_CFG.GAS_PRICE
     data = create_transaction_data(contract, func_name, args)
     return create_transaction(
         web3=contract.web3,
@@ -132,21 +138,16 @@ def get_logs(
     if argument_filters is None:
         argument_filters = {}
 
-    filter_params = input_filter_params_formatter(construct_event_filter_params(
-        event_abi,
-        argument_filters=argument_filters,
-        address=contract.address,
-        fromBlock=from_block,
-        toBlock=to_block
-    )[1])
-
-    response = _get_logs_raw(contract, filter_params)
-
-    logs = log_array_formatter(response)
-    logs = [dict(log) for log in logs]
-    for log in logs:
-        log['args'] = get_event_data(event_abi, log)['args']
-    return logs
+    tmp_filter = LogFilter(
+        contract.web3,
+        [event_abi],
+        contract.address,
+        event_name,
+        from_block,
+        to_block,
+        argument_filters
+    )
+    return tmp_filter.get_logs()
 
 
 def _get_logs_raw(contract: Contract, filter_params: Dict[str, Any]):
@@ -158,7 +159,7 @@ def get_event_blocking(
         contract: Contract,
         event_name: str,
         from_block: Union[int, str] = 0,
-        to_block: Union[int, str] = 'pending',
+        to_block: Union[int, str] = 'latest',
         argument_filters: Dict[str, Any]=None,
         condition=None,
         wait=DEFAULT_RETRY_INTERVAL,

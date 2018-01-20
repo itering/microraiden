@@ -38,7 +38,7 @@ class Session(requests.Session):
             self.client = Client(**client_kwargs)
 
     def close(self):
-        if self.close_channel_on_exit:
+        if self.close_channel_on_exit and self.channel.state == Channel.State.open:
             self.close_channel()
         requests.Session.close(self)
 
@@ -148,8 +148,8 @@ class Session(requests.Session):
                     **kwargs
                 )
 
-            elif HTTPHeaders.INSUF_FUNDS in response.headers:
-                return response, self.on_insufficient_funds(method, url, response, **kwargs)
+            elif HTTPHeaders.INVALID_PROOF in response.headers:
+                return response, self.on_invalid_balance_proof(method, url, response, **kwargs)
 
             elif HTTPHeaders.CONTRACT_ADDRESS not in response.headers or not is_same_address(
                 response.headers.get(HTTPHeaders.CONTRACT_ADDRESS),
@@ -193,9 +193,17 @@ class Session(requests.Session):
         time.sleep(self.retry_interval)
         return True
 
-    def on_insufficient_funds(self, method: str, url: str, response: Response, **kwargs) -> bool:
+    def on_invalid_balance_proof(
+        self,
+        method: str,
+        url: str,
+        response: Response,
+        **kwargs
+    ) -> bool:
         log.warning(
-            'Server was unable to verify the transfer - Insufficient funds of the balance proof '
+            'Server was unable to verify the transfer - '
+            'Either the balance was greater than deposit'
+            'or the balance proof contained a lower balance than expected'
             'or possibly an unconfirmed or unregistered topup. Retrying in {} seconds.'
         )
         time.sleep(self.retry_interval)
@@ -288,13 +296,10 @@ class Session(requests.Session):
         return True
 
     def on_http_error(self, method: str, url: str, response: Response, **kwargs) -> bool:
-        log.warning(
-            'Unexpected server error, status code {}. Retrying in {} seconds.'.format(
-                response.status_code, self.retry_interval
-            )
+        log.error(
+            'Unexpected server error, status code {}'.format(response.status_code)
         )
-        time.sleep(self.retry_interval)
-        return True
+        return False
 
     def on_init(self, method: str, url: str, **kwargs):
         log.debug('Starting {} request loop for resource at {}.'.format(method, url))

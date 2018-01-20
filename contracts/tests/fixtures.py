@@ -51,7 +51,9 @@ uraiden_events = {
     'created': 'ChannelCreated',
     'topup': 'ChannelToppedUp',
     'closed': 'ChannelCloseRequested',
-    'settled': 'ChannelSettled'
+    'settled': 'ChannelSettled',
+    'withdraw': 'ChannelWithdraw',
+    'trusted': 'TrustedContract'
 }
 
 

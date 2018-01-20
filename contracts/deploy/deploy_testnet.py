@@ -3,12 +3,13 @@ A simple Python script to deploy contracts and then do a smoke test for them.
 '''
 import click
 from populus import Project
-from ethereum.utils import encode_hex
-from eth_utils import pad_left, remove_0x_prefix
+from eth_utils import (
+    is_address,
+    to_checksum_address,
+)
 from utils.utils import (
     check_succesful_tx,
     wait,
-    pack
 )
 
 
@@ -75,12 +76,13 @@ def main(**kwargs):
 
     with project.get_chain(chain_name) as chain:
         web3 = chain.web3
-        print('Web3 provider is', web3.currentProvider)
+        print('Web3 provider is', web3.providers[0])
 
         owner = owner or web3.eth.accounts[0]
-        assert owner
-        assert web3.eth.getBalance(owner) > 0, 'Account with insuficient funds.'
+        assert owner and is_address(owner), 'Invalid owner provided.'
+        owner = to_checksum_address(owner)
         print('Owner is', owner)
+        assert web3.eth.getBalance(owner) > 0, 'Account with insuficient funds.'
 
         token = chain.provider.get_contract_factory('CustomToken')
 
@@ -91,23 +93,20 @@ def main(**kwargs):
             )
             receipt = check_succesful_tx(chain.web3, txhash, txn_wait)
             token_address = receipt['contractAddress']
-            print(token_name, 'address is', token_address)
+
+        assert token_address and is_address(token_address)
+        token_address = to_checksum_address(token_address)
+        print(token_name, 'address is', token_address)
 
         microraiden_contract = chain.provider.get_contract_factory('RaidenMicroTransferChannels')
-        txhash = microraiden_contract.deploy(args=[token_address, challenge_period])
+        txhash = microraiden_contract.deploy(
+            args=[token_address, challenge_period, []],
+            transaction={'from': owner}
+        )
         receipt = check_succesful_tx(chain.web3, txhash, txn_wait)
         microraiden_address = receipt['contractAddress']
 
         print('RaidenMicroTransferChannels address is', microraiden_address)
-
-        abi_encoded_args = encode_hex(pad_left(pack(
-            remove_0x_prefix(token_address),
-            challenge_period),
-            128, '0'
-        ))
-
-        print('RaidenMicroTransferChannels arguments', token_address, challenge_period)
-        print('RaidenMicroTransferChannels abi encoded constructor arguments:', abi_encoded_args)
 
 
 if __name__ == '__main__':

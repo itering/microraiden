@@ -2,6 +2,7 @@ import pytest
 from ethereum import tester
 from utils import sign
 from tests.utils import balance_proof_hash, closing_message_hash
+from eth_utils import encode_hex, is_same_address
 from tests.fixtures import (
     contract_params,
     channel_params,
@@ -27,6 +28,8 @@ from tests.fixtures_uraiden import (
     get_uraiden_contract,
     uraiden_contract,
     uraiden_instance,
+    delegate_contract,
+    delegate_instance,
     get_channel,
     channel_settle_tests,
     channel_pre_close_tests,
@@ -185,7 +188,7 @@ def test_uncooperative_close_fail_uint32_overflow(
         get_channel):
     challenge_period = MAX_UINT32 - 20
     uraiden_instance = get_uraiden_contract(
-        [token_instance.address, challenge_period]
+        [token_instance.address, challenge_period, []]
     )
 
     (sender, receiver, open_block_number) = get_channel(uraiden_instance)[:3]
@@ -211,7 +214,7 @@ def test_uncooperative_close_uint32_overflow(
         get_channel):
     challenge_period = MAX_UINT32 - 20
     uraiden_instance = get_uraiden_contract(
-        [token_instance.address, challenge_period]
+        [token_instance.address, challenge_period, []]
     )
 
     (sender, receiver, open_block_number) = get_channel(uraiden_instance)[:3]
@@ -337,7 +340,7 @@ def test_cooperative_close_call(channel_params, uraiden_instance, get_channel):
             receiver,
             open_block_number,
             balance,
-            bytearray(),
+            encode_hex(bytearray()),
             closing_sig
         )
     with pytest.raises(tester.TransactionFailed):
@@ -346,14 +349,14 @@ def test_cooperative_close_call(channel_params, uraiden_instance, get_channel):
             open_block_number,
             balance,
             balance_msg_sig,
-            bytearray()
+            encode_hex(bytearray())
         )
     with pytest.raises(tester.TransactionFailed):
         uraiden_instance.transact({"from": sender}).cooperativeClose(
             receiver,
             open_block_number,
             balance,
-            bytearray(64),
+            encode_hex(bytearray(64)),
             closing_sig
         )
     with pytest.raises(tester.TransactionFailed):
@@ -362,7 +365,7 @@ def test_cooperative_close_call(channel_params, uraiden_instance, get_channel):
             open_block_number,
             balance,
             balance_msg_sig,
-            bytearray(64)
+            encode_hex(bytearray(64))
         )
 
     uraiden_instance.transact({"from": sender}).cooperativeClose(
@@ -519,7 +522,7 @@ def test_cooperative_close_call_receiver(
         balance,
         balance_msg_sig
     )
-    assert sender_verified == sender
+    assert is_same_address(sender_verified, sender)
 
     receiver_verified = uraiden_instance.call().extractClosingSignature(
         sender,
@@ -527,7 +530,7 @@ def test_cooperative_close_call_receiver(
         balance,
         closing_sig
     )
-    assert receiver_verified == receiver
+    assert is_same_address(receiver_verified, receiver)
 
     # Cooperative close can be called by anyone
     txn_hash = uraiden_instance.transact({"from": receiver}).cooperativeClose(
@@ -555,7 +558,7 @@ def test_cooperative_close_call_sender(
         balance,
         balance_msg_sig
     )
-    assert sender_verified == sender
+    assert is_same_address(sender_verified, sender)
 
     receiver_verified = uraiden_instance.call().extractClosingSignature(
         sender,
@@ -563,7 +566,7 @@ def test_cooperative_close_call_sender(
         balance,
         closing_sig
     )
-    assert receiver_verified == receiver
+    assert is_same_address(receiver_verified, receiver)
 
     # Cooperative close can be called by anyone
     uraiden_instance.transact({"from": sender}).cooperativeClose(
@@ -590,7 +593,7 @@ def test_cooperative_close_call_delegate(
         balance,
         balance_msg_sig
     )
-    assert sender_verified == sender
+    assert is_same_address(sender_verified, sender)
 
     receiver_verified = uraiden_instance.call().extractClosingSignature(
         sender,
@@ -598,7 +601,7 @@ def test_cooperative_close_call_delegate(
         balance,
         closing_sig
     )
-    assert receiver_verified == receiver
+    assert is_same_address(receiver_verified, receiver)
 
     # Cooperative close can be called by anyone
     uraiden_instance.transact({"from": A}).cooperativeClose(
@@ -860,6 +863,7 @@ def test_settle_event(
         sender,
         receiver,
         open_block_number,
+        balance,
         balance)
     )
     ev_handler.check()
